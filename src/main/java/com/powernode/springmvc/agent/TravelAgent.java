@@ -17,12 +17,14 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Component
 public class TravelAgent {
 
     private final ChatClient chatClient;
     private final VectorStore vectorStore;
+    private final QueryRewriter queryRewriter;
 
     @Autowired
     private RedisChatMemory chatMemory;
@@ -38,8 +40,12 @@ public class TravelAgent {
             请用清晰的结构化格式回答，方便用户阅读。
             """;
 
-    public TravelAgent(ChatClient.Builder builder, RedisChatMemory chatMemory, VectorStore vectorStore) {
+    public TravelAgent(ChatClient.Builder builder,
+                       RedisChatMemory chatMemory,
+                       VectorStore vectorStore,
+                       QueryRewriter queryRewriter) {
         this.vectorStore = vectorStore;
+        this.queryRewriter = queryRewriter;
         this.chatClient = builder
                 .defaultSystem(SYSTEM_PROMPT)
                 .defaultAdvisors(
@@ -64,6 +70,27 @@ public class TravelAgent {
 
     public Flux<String> chat(String conversationId, String userMessage) {
         System.out.println("调用AI，conversationId：" + conversationId + "，message：" + userMessage);
+        List<String> queries = queryRewriter.rewrite(userMessage);
+        List<Document> docs = queries.stream()
+                .flatMap(query -> vectorStore.similaritySearch(
+                        SearchRequest.builder()
+                                .query(query)
+                                .topK(2)
+                                .build()
+                ).stream())
+                .distinct()
+                .limit(5)
+                .collect(Collectors.toList());
+        System.out.println("检索到 " + docs.size() + " 条知识，queries: " + queries);
+
+        String context = docs.stream()
+                .map(Document::getText)
+                .collect(Collectors.joining("\n"));
+
+        String promptWithContext = context.isEmpty()
+                ? userMessage
+                : "【景点参考信息】\n" + context + "\n\n【用户问题】\n" + userMessage;
+
         return chatClient.prompt(userMessage)
                 .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId))
                 .stream()
