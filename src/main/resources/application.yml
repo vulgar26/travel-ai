@@ -38,3 +38,6 @@ mybatis-plus:
 logging:
   level:
     com.travel.ai: debug
+
+weather:
+  api-key: 4c387d077c804a5382c4166cd2980d83

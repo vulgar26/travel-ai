@@ -25,6 +25,7 @@ public class TravelAgent {
     private final ChatClient chatClient;
     private final VectorStore vectorStore;
     private final QueryRewriter queryRewriter;
+    private final WeatherTool weatherTool;
 
     @Autowired
     private RedisChatMemory chatMemory;
@@ -43,9 +44,11 @@ public class TravelAgent {
     public TravelAgent(ChatClient.Builder builder,
                        RedisChatMemory chatMemory,
                        VectorStore vectorStore,
-                       QueryRewriter queryRewriter) {
+                       QueryRewriter queryRewriter,
+                       WeatherTool weatherTool) {
         this.vectorStore = vectorStore;
         this.queryRewriter = queryRewriter;
+        this.weatherTool = weatherTool;
         this.chatClient = builder
                 .defaultSystem(SYSTEM_PROMPT)
                 .defaultAdvisors(
@@ -60,6 +63,7 @@ public class TravelAgent {
                                 .build()
                 )
                 .defaultAdvisors(new SimpleLoggerAdvisor())
+                .defaultTools(weatherTool)
                 .defaultOptions(
                         DashScopeChatOptions.builder()
                                 .topP(0.7)
