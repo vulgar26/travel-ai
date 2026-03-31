@@ -6,15 +6,23 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.document.Document;
+import org.springframework.ai.rag.advisor.RetrievalAugmentationAdvisor;
+import org.springframework.ai.rag.retrieval.search.VectorStoreDocumentRetriever;
+import org.springframework.ai.vectorstore.SearchRequest;
+import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
+import java.util.List;
+
 @Component
 public class TravelAgent {
 
     private final ChatClient chatClient;
+    private final VectorStore vectorStore;
 
     @Autowired
     private RedisChatMemory chatMemory;
@@ -30,12 +38,20 @@ public class TravelAgent {
             请用清晰的结构化格式回答，方便用户阅读。
             """;
 
-    public TravelAgent(ChatClient.Builder builder, RedisChatMemory chatMemory) {
-        System.out.println("注入的ChatMemory类型：" + chatMemory.getClass().getName());
+    public TravelAgent(ChatClient.Builder builder, RedisChatMemory chatMemory, VectorStore vectorStore) {
+        this.vectorStore = vectorStore;
         this.chatClient = builder
                 .defaultSystem(SYSTEM_PROMPT)
                 .defaultAdvisors(
                         MessageChatMemoryAdvisor.builder(chatMemory).build()
+                )
+                .defaultAdvisors(
+                        RetrievalAugmentationAdvisor.builder()
+                                .documentRetriever(VectorStoreDocumentRetriever.builder()
+                                        .vectorStore(vectorStore)
+                                        .topK(3)
+                                        .build())
+                                .build()
                 )
                 .defaultAdvisors(new SimpleLoggerAdvisor())
                 .defaultOptions(
