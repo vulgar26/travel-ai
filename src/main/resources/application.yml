@@ -10,7 +10,7 @@ spring:
 #    driver-class-name: com.mysql.cj.jdbc.Driver
 #    url: jdbc:mysql://127.0.0.1:3306/travel_ai?useSSL=false&serverTimezone=Asia/Shanghai
 #    username: root
-#    password: "@Zly642465589"
+#    password: ${DB_PASSWORD}
 
   datasource:
     url: jdbc:postgresql://127.0.0.1:5432/ragent
@@ -27,7 +27,7 @@ spring:
   # Spring AI配置
   ai:
     dashscope:
-      api-key: sk-b794530a9b23492591c64eccabc7f891
+      api-key: ${SPRING_AI_DASHSCOPE_API_KEY:}
       chat:
         model: qwen3.5-plus
         options:
@@ -52,4 +52,4 @@ logging:
     com.travel.ai: debug
 
 weather:
-  api-key: 4c387d077c804a5382c4166cd2980d83
+  api-key: ${WEATHER_API_KEY:}

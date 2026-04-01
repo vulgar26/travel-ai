@@ -36,3 +36,8 @@ build/
 
 ### Mac OS ###
 .DS_Store
+
+# local secrets / overrides
+src/main/resources/application-local.yml
+.env
+*.local.yml
