@@ -7,12 +7,9 @@ import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.document.Document;
-import org.springframework.ai.rag.advisor.RetrievalAugmentationAdvisor;
-import org.springframework.ai.rag.retrieval.search.VectorStoreDocumentRetriever;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
@@ -54,14 +51,6 @@ public class TravelAgent {
                 .defaultAdvisors(
                         MessageChatMemoryAdvisor.builder(chatMemory).build()
                 )
-                .defaultAdvisors(
-                        RetrievalAugmentationAdvisor.builder()
-                                .documentRetriever(VectorStoreDocumentRetriever.builder()
-                                        .vectorStore(vectorStore)
-                                        .topK(3)
-                                        .build())
-                                .build()
-                )
                 .defaultAdvisors(new SimpleLoggerAdvisor())
                 .defaultTools(weatherTool)
                 .defaultOptions(
@@ -95,7 +84,9 @@ public class TravelAgent {
                 ? userMessage
                 : "【景点参考信息】\n" + context + "\n\n【用户问题】\n" + userMessage;
 
-        return chatClient.prompt(userMessage)
+        System.out.println("最终 prompt 字符数：" + promptWithContext.length());
+
+        return chatClient.prompt(promptWithContext)
                 .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId))
                 .stream()
                 .content();
