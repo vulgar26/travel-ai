@@ -1,0 +1,3 @@
+设计并实现查询改写多路召回链路：通过独立ChatClient将用户输入改写为3个不同角度的检索query，多路并行检索后合并去重，相比直接检索覆盖面更广、召回更准确。
+自实现VectorStore接口，通过JDBC + pgvector将Embedding向量持久化到PostgreSQL，解决SimpleVectorStore重启丢失问题，掌握了向量化存储与余弦相似度检索的底层实现.
+完成项目工程化基线：敏感配置环境变量化（密钥外置）；引入SLF4J + MDC实现requestId贯穿全链路日志；知识库入库携带用户metadata，支持按用户隔离检索，避免越权访问。
