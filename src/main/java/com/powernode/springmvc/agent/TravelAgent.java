@@ -9,6 +9,7 @@ import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.vectorstore.filter.Filter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
@@ -64,11 +65,20 @@ public class TravelAgent {
     public Flux<String> chat(String conversationId, String userMessage) {
         System.out.println("调用AI，conversationId：" + conversationId + "，message：" + userMessage);
         List<String> queries = queryRewriter.rewrite(userMessage);
+
+        // 按 user_id 做最小隔离（后续会替换为真实用户）
+        Filter.Expression userFilter = new Filter.Expression(
+                Filter.ExpressionType.EQ,
+                new Filter.Key("user_id"),
+                new Filter.Value("demo-user")
+        );
+
         List<Document> docs = queries.stream()
                 .flatMap(query -> vectorStore.similaritySearch(
                         SearchRequest.builder()
                                 .query(query)
                                 .topK(2)
+                                .filterExpression(userFilter)
                                 .build()
                 ).stream())
                 .distinct()

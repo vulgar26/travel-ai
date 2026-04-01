@@ -9,7 +9,10 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class KnowledgeServiceImpl implements KnowledgeService {
@@ -50,8 +53,20 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         }
 
 
-        // 包装成Document
-        List<Document> documents = List.of(new Document(content));
+        // 包装成Document（带最小 metadata，用于后续按用户/来源过滤）
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("user_id", "demo-user");
+        metadata.put("source_name", filename);
+        metadata.put("uploaded_at", Instant.now().toString());
+        List<Document> documents = List.of(new Document(content, metadata));
+        documents.forEach(document -> {
+            System.out.println("document: " + document.getText());
+            if (metadata != null) {
+                metadata.forEach((key, value) -> {
+                    System.out.println(key + ": " + value);
+                });
+            }
+        });
 
         // 分块
         List<Document> chunks = splitter.apply(documents);
