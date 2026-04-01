@@ -1,23 +1,35 @@
 package com.powernode.springmvc.agent;
 
 import jakarta.annotation.PostConstruct;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 
 @Component
+@ConditionalOnProperty(name = "app.knowledge.init.enabled", havingValue = "true")
 public class KnowledgeInitializer {
 
     private final VectorStore vectorStore;
 
-    public KnowledgeInitializer(VectorStore vectorStore) {
+    private final JdbcTemplate jdbcTemplate;
+
+    public KnowledgeInitializer(VectorStore vectorStore, JdbcTemplate jdbcTemplate) {
         this.vectorStore = vectorStore;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @PostConstruct
     public void init() {
+        
+        if (jdbcTemplate.queryForObject("SELECT COUNT(*) FROM vector_store", Integer.class) > 0) {
+            System.out.println("知识库已存在，跳过初始化");
+            return;
+        }
+
         List<Document> documents = List.of(
                 new Document("【西安-兵马俑】位于西安市临潼区，是世界八大奇迹之一，规模宏大的秦代陶俑军阵。适合历史爱好者与全家出游，门票120元，建议游览3小时。特色美食有肉夹馍、羊肉泡馍。"),
                 new Document("【西安-大唐不夜城】位于西安市雁塔区，以盛唐文化为主题的步行街，夜景璀璨。适合喜欢古风与夜景的游客，门票免费，建议游览2小时。特色美食有甑糕、油泼面。"),
