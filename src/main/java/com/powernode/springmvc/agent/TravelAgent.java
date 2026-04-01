@@ -74,11 +74,17 @@ public class TravelAgent {
         log.info("调用AI，conversationId={}, requestId={}, message={}", conversationId, requestId, userMessage);
         List<String> queries = queryRewriter.rewrite(userMessage);
 
-        // 按 user_id 做最小隔离（后续会替换为真实用户）
+        // 按 user_id 做隔离：从 SecurityContext 中获取当前用户
+        String currentUser = org.springframework.security.core.context.SecurityContextHolder
+                .getContext()
+                .getAuthentication() != null
+                ? org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication().getName()
+                : "anonymous";
+
         Filter.Expression userFilter = new Filter.Expression(
                 Filter.ExpressionType.EQ,
                 new Filter.Key("user_id"),
-                new Filter.Value("demo-user")
+                new Filter.Value(currentUser)
         );
 
         List<Document> docs = queries.stream()

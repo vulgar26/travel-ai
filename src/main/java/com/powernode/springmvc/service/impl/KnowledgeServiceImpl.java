@@ -59,7 +59,12 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
         // 包装成Document（带最小 metadata，用于后续按用户/来源过滤）
         Map<String, Object> metadata = new HashMap<>();
-        metadata.put("user_id", "demo-user");
+        String currentUser = org.springframework.security.core.context.SecurityContextHolder
+                .getContext()
+                .getAuthentication() != null
+                ? org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication().getName()
+                : "anonymous";
+        metadata.put("user_id", currentUser);
         metadata.put("source_name", filename);
         metadata.put("uploaded_at", Instant.now().toString());
         List<Document> documents = List.of(new Document(content, metadata));
