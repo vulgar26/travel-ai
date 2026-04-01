@@ -1,6 +1,7 @@
 package com.powernode.springmvc.config;
 
 import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.SimpleVectorStore;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.context.annotation.Bean;
@@ -12,5 +13,10 @@ public class RagConfig {
     @Bean
     public VectorStore vectorStore(EmbeddingModel embeddingModel) {
         return SimpleVectorStore.builder(embeddingModel).build();
+    }
+
+    @Bean
+    public TokenTextSplitter tokenTextSplitter() {
+        return new TokenTextSplitter();
     }
 }
