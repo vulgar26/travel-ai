@@ -36,6 +36,24 @@ POST /knowledge/upload\
 GET /travel/chat/{conversationId}?query=你的问题
 
 快速启动
-1. 配置 application.yml 中的数据库、Redis、DashScope API Key
-2. 启动 Docker 中的 Redis
-3. 运行 TravelAiApplication
+
+配置（环境变量）
+
+为避免敏感信息进入仓库，本项目使用环境变量注入密钥（也可使用本地覆盖文件）。
+
+| 变量名 | 说明 | 是否必需 |
+| --- | --- | --- |
+| `SPRING_AI_DASHSCOPE_API_KEY` | DashScope / 通义千问 API Key（Spring AI） | 是 |
+| `WEATHER_API_KEY` | 天气服务 API Key | 视功能而定 |
+
+本地开发两种方式（二选一）：
+
+1. 方式1（推荐）：直接设置环境变量后启动  
+2. 方式2：在 `src/main/resources/application-local.yml` 填入真实值（该文件已在 `.gitignore` 中忽略，勿提交）
+
+快速启动
+
+1. 配置 `application.yml` 中的数据库、Redis（不要在此文件写入真实 API Key）
+2. 配置 `SPRING_AI_DASHSCOPE_API_KEY`（以及可选的 `WEATHER_API_KEY`），或使用本地覆盖文件 `application-local.yml`
+3. 启动 Redis（本地或 Docker 均可）
+4. 运行 `TravelAiApplication`
