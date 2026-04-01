@@ -11,11 +11,6 @@ import org.springframework.context.annotation.Configuration;
 public class RagConfig {
 
     @Bean
-    public VectorStore vectorStore(EmbeddingModel embeddingModel) {
-        return SimpleVectorStore.builder(embeddingModel).build();
-    }
-
-    @Bean
     public TokenTextSplitter tokenTextSplitter() {
         return new TokenTextSplitter();
     }
