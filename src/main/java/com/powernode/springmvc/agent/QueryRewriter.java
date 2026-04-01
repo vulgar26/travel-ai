@@ -1,5 +1,6 @@
 package com.powernode.springmvc.agent;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.stereotype.Component;
 
@@ -7,6 +8,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Component
 public class QueryRewriter {
 
@@ -39,7 +41,7 @@ public class QueryRewriter {
                 .call()
                 .content();
 
-        System.out.println("查询改写结果：" + result);
+        log.info("查询改写结果：{}", result);
 
         return Arrays.stream(result.split("\n"))
                 .map(String::trim)

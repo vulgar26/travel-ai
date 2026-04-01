@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.powernode.springmvc.dto.SimpleMsg;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
@@ -17,6 +18,7 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Component
 public class RedisChatMemory implements ChatMemory {
     private static final String KEY_PREFIX = "travel:chat:memory:";
@@ -62,7 +64,7 @@ public class RedisChatMemory implements ChatMemory {
     private List<SimpleMsg> getSimpleHistory(String conversationId) {
         String key = KEY_PREFIX + conversationId;
         String json = stringRedisTemplate.opsForValue().get(key);
-        System.out.println("从Redis原始数据:" + json);
+        log.info("从Redis原始数据: {}", json);
         if (json == null || json.isBlank()) {
             return new ArrayList<>();
         }
@@ -70,7 +72,7 @@ public class RedisChatMemory implements ChatMemory {
             return objectMapper.readValue(json, new TypeReference<List<SimpleMsg>>() {});
         } catch (Exception e) {
             // 旧脏数据直接清空，不报错
-            System.err.println("历史数据格式异常，清空重建: " + e.getMessage());
+            log.error("历史数据格式异常，清空重建: {}", e.getMessage());
             stringRedisTemplate.delete(key);
             return new ArrayList<>();
         }

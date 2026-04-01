@@ -1,6 +1,8 @@
 package com.powernode.springmvc.agent;
 
 import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -13,6 +15,8 @@ import java.util.List;
 @ConditionalOnProperty(name = "app.knowledge.init.enabled", havingValue = "true")
 public class KnowledgeInitializer {
 
+    private static final Logger log = LoggerFactory.getLogger(KnowledgeInitializer.class);
+
     private final VectorStore vectorStore;
 
     private final JdbcTemplate jdbcTemplate;
@@ -24,9 +28,9 @@ public class KnowledgeInitializer {
 
     @PostConstruct
     public void init() {
-        
+
         if (jdbcTemplate.queryForObject("SELECT COUNT(*) FROM vector_store", Integer.class) > 0) {
-            System.out.println("知识库已存在，跳过初始化");
+            log.info("知识库已存在，跳过初始化");
             return;
         }
 
@@ -42,6 +46,6 @@ public class KnowledgeInitializer {
                 new Document("【成都-锦里古街】位于成都市武侯区，紧邻武侯祠的川西民俗古街，夜景灯火璀璨。适合拍照打卡、体验民俗，门票免费，建议游览2小时。特色美食有糖油果子、钵钵鸡。")
         );
         vectorStore.add(documents);
-        System.out.println("知识库初始化完成，共加载 " + documents.size() + " 条数据");
+        log.info("知识库初始化完成，共加载 {} 条数据", documents.size());
     }
 }

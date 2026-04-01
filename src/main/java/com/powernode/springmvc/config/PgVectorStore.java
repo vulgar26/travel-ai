@@ -1,6 +1,7 @@
 package com.powernode.springmvc.config;
 
 import com.pgvector.PGvector;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.vectorstore.SearchRequest;
@@ -13,6 +14,7 @@ import java.sql.Connection;
 import java.util.List;
 import java.util.UUID;
 
+@Slf4j
 @Component
 public class PgVectorStore implements VectorStore{
     private final JdbcTemplate jdbcTemplate;
@@ -44,7 +46,7 @@ public class PgVectorStore implements VectorStore{
                 return null;
             });
         }
-        System.out.println("存入向量库：" + documents.size() + " 条");
+        log.info("存入向量库：{} 条", documents.size());
     }
 
     @Override

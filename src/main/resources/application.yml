@@ -50,6 +50,8 @@ mybatis-plus:
 logging:
   level:
     com.travel.ai: debug
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %5p [%X{requestId}] --- [%15.15t] %-40.40logger{39} : %m%n"
 
 weather:
   api-key: ${WEATHER_API_KEY:}

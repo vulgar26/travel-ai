@@ -2,6 +2,9 @@ package com.powernode.springmvc.agent;
 
 import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
 import com.powernode.springmvc.config.RedisChatMemory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
@@ -15,10 +18,13 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Component
 public class TravelAgent {
+
+    private static final Logger log = LoggerFactory.getLogger(TravelAgent.class);
 
     private final ChatClient chatClient;
     private final VectorStore vectorStore;
@@ -63,7 +69,9 @@ public class TravelAgent {
     }
 
     public Flux<String> chat(String conversationId, String userMessage) {
-        System.out.println("调用AI，conversationId：" + conversationId + "，message：" + userMessage);
+        String requestId = UUID.randomUUID().toString();
+        MDC.put("requestId", requestId);
+        log.info("调用AI，conversationId={}, requestId={}, message={}", conversationId, requestId, userMessage);
         List<String> queries = queryRewriter.rewrite(userMessage);
 
         // 按 user_id 做最小隔离（后续会替换为真实用户）
@@ -84,7 +92,7 @@ public class TravelAgent {
                 .distinct()
                 .limit(5)
                 .collect(Collectors.toList());
-        System.out.println("检索到 " + docs.size() + " 条知识，queries: " + queries);
+        log.info("检索到 {} 条知识，queries={}", docs.size(), queries);
 
         String context = docs.stream()
                 .map(Document::getText)
@@ -94,11 +102,12 @@ public class TravelAgent {
                 ? userMessage
                 : "【景点参考信息】\n" + context + "\n\n【用户问题】\n" + userMessage;
 
-        System.out.println("最终 prompt 字符数：" + promptWithContext.length());
+        log.info("最终 prompt 字符数={}", promptWithContext.length());
 
         return chatClient.prompt(promptWithContext)
                 .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId))
                 .stream()
-                .content();
+                .content()
+                .doFinally(signalType -> MDC.remove("requestId"));
     }
 }
