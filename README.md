@@ -19,6 +19,9 @@
 5、SSE流式输出：逐字返回，提升用户体验\
        通过逐字返回的SSE流式输出，能够让用户在第一时间获取到信息，早读早理解，提升用户的体验，减少等待的时间。
 
+6、向量持久化：自实现VectorStore接口\
+      通过JDBC + pgvector将向量数据持久化到PostgreSQL，解决了内存存储重启丢失的问题，理解了Embedding向量化和余弦相似度检索的底层实现。
+
 技术栈\
 Spring Boot 3.3.5\
 Spring AI Alibaba 1.1.2.0\
