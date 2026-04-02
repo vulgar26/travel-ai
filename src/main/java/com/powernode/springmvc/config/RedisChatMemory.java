@@ -33,9 +33,17 @@ public class RedisChatMemory implements ChatMemory {
         this.objectMapper = new ObjectMapper();
     }
 
+    private String buildKey(String conversationId) {
+        var context = org.springframework.security.core.context.SecurityContextHolder.getContext();
+        String username = context.getAuthentication() != null
+                ? context.getAuthentication().getName()
+                : "anonymous";
+        return KEY_PREFIX + username + ":" + conversationId;
+    }
+
     @Override
     public void add(String conversationId, List<Message> messages) {
-        String key = KEY_PREFIX + conversationId;
+        String key = buildKey(conversationId);
 
         List<SimpleMsg> simpleHistory = getSimpleHistory(conversationId);
 
@@ -60,9 +68,9 @@ public class RedisChatMemory implements ChatMemory {
         }
     }
 
-    // 读取简单消息列表
+    // 读取简单消息列表（按 userId + conversationId 维度隔离）
     private List<SimpleMsg> getSimpleHistory(String conversationId) {
-        String key = KEY_PREFIX + conversationId;
+        String key = buildKey(conversationId);
         String json = stringRedisTemplate.opsForValue().get(key);
         log.info("从Redis原始数据: {}", json);
         if (json == null || json.isBlank()) {
@@ -93,6 +101,6 @@ public class RedisChatMemory implements ChatMemory {
 
     @Override
     public void clear(String conversationId) {
-        stringRedisTemplate.delete(KEY_PREFIX + conversationId);
+        stringRedisTemplate.delete(buildKey(conversationId));
     }
 }
