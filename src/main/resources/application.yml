@@ -53,8 +53,30 @@ logging:
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %5p [%X{requestId}] --- [%15.15t] %-40.40logger{39} : %m%n"
 
+# Actuator：仅暴露 health / info，其余端点默认不对外
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      # 匿名仅见 {"status":"UP"}；已认证用户可看各组件（db、redis 等）
+      show-details: when_authorized
+      show-components: when_authorized
+      # 开启 health 子路径探活（/actuator/health/liveness 和 /actuator/health/readiness）
+      probes:
+        enabled: true
+  # Kubernetes 风格探活（可选，负载均衡/编排常用）
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
 weather:
   api-key: ${WEATHER_API_KEY:}
+  # 天气接口调用超时时间（毫秒），默认 3000ms；目前未配置 api-url 时仍使用本地模拟数据
+  timeout-ms: 3000
 
 app:
   knowledge:
