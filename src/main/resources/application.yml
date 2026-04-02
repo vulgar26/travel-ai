@@ -79,6 +79,9 @@ weather:
   timeout-ms: 3000
 
 app:
+  sse:
+    # SSE 空闲心跳间隔（秒），发送标准 comment 行，避免网关/代理因长时间无字节而断开
+    heartbeat-seconds: 15
   knowledge:
     init:
       enabled: false

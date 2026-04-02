@@ -14,9 +14,12 @@ import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.filter.Filter;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -34,6 +37,9 @@ public class TravelAgent {
     @Autowired
     private RedisChatMemory chatMemory;
 
+    /** 长连接空闲时定期发送 SSE 注释行（comment），避免网关/代理因无数据而断开 */
+    @Value("${app.sse.heartbeat-seconds:15}")
+    private int sseHeartbeatSeconds;
 
     private static final  String SYSTEM_PROMPT = """
             你是一个专业的出行规划助手。
@@ -68,7 +74,10 @@ public class TravelAgent {
                 .build();
     }
 
-    public Flux<String> chat(String conversationId, String userMessage) {
+    public Flux<ServerSentEvent<String>> chat(String conversationId, String userMessage) {
+        // 为了防止外部 LLM 长时间无响应，这里增加一个整体超时时间
+        Duration llmTimeout = Duration.ofSeconds(20);
+
         String requestId = UUID.randomUUID().toString();
         MDC.put("requestId", requestId);
         log.info("调用AI，conversationId={}, requestId={}, message={}", conversationId, requestId, userMessage);
@@ -110,10 +119,28 @@ public class TravelAgent {
 
         log.info("最终 prompt 字符数={}", promptWithContext.length());
 
-        return chatClient.prompt(promptWithContext)
+        // 内容流：先 share，便于「正文」与「心跳」共用同一套上游订阅，避免重复调用 LLM
+        Flux<String> contentFlux = chatClient.prompt(promptWithContext)
                 .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId))
                 .stream()
                 .content()
+                .timeout(llmTimeout)
+                .onErrorResume(throwable -> {
+                    log.error("调用 AI 超时或出错，conversationId={}, requestId={}, error={}", conversationId, requestId, throwable.toString());
+                    return Flux.just("【系统提示】当前 AI 响应较慢或出现异常，请稍后重试。");
+                })
+                .share();
+
+        Flux<ServerSentEvent<String>> tokenEvents = contentFlux.map(chunk ->
+                ServerSentEvent.<String>builder().data(chunk).build());
+
+        // 心跳：按 SSE 规范使用 comment 行（: keepalive），不占用 data 通道，前端可忽略
+        Flux<ServerSentEvent<String>> keepAlive = Flux.interval(Duration.ofSeconds(Math.max(1, sseHeartbeatSeconds)))
+                .takeUntilOther(contentFlux.then())
+                .map(tick -> ServerSentEvent.<String>builder().comment("keepalive").build());
+
+        return Flux.merge(tokenEvents, keepAlive)
+                .doOnCancel(() -> log.info("SSE 订阅已取消（多为客户端断开），conversationId={}, requestId={}", conversationId, requestId))
                 .doFinally(signalType -> MDC.remove("requestId"));
     }
 }

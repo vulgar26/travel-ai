@@ -1,6 +1,6 @@
-# ARCHITECTURE — 最简链路说明（更新至 Week 2 Day 4）
+# ARCHITECTURE — 最简链路说明（更新至 Week 2 Day 6）
 
-本项目的核心是“一条可解释的 RAG 链路”：**改写 → 检索 → 拼上下文 → 流式生成**，并在此基础上补齐了最小上线安全与可靠性（鉴权 / 会话隔离 / 限流 / 超时）。
+本项目的核心是“一条可解释的 RAG 链路”：**改写 → 检索 → 拼上下文 → 流式生成**，并在此基础上补齐了最小上线安全与可靠性（鉴权 / 会话隔离 / 限流 / 超时 / Actuator 探活 / SSE 心跳与断线感知）。
 
 ## 1. 请求链路（文本流程图）
 
@@ -11,7 +11,7 @@
 → `VectorStore.similaritySearch(...)`（对每条 query 检索 TopK，合并/去重/限制条数）  
 → 拼接 `promptWithContext`（将检索文本注入到最终 prompt）  
 → `ChatClient.prompt(promptWithContext)`（携带 `conversationId` 与当前用户作为 chat memory key）  
-→ SSE 流式返回 token/content 给客户端
+→ 以 `Flux<ServerSentEvent<String>>` 形式 SSE 流式返回（正文为 `data`，空闲时 `comment` 心跳）给客户端
 
 ## 2. 单链路约束（为什么要这样做）
 
@@ -53,7 +53,7 @@
 ### 5.3 超时与降级
 
 - **LLM 调用**（`TravelAgent.chat`）：
-  - 在流式 Flux 上增加 `.timeout(Duration.ofSeconds(20))`，整体超时后通过 `.onErrorResume(...)` 记录错误并返回一条系统提示，避免 SSE 永久挂起。
+  - 在 **内容流** `Flux<String>` 上增加 `.timeout(Duration.ofSeconds(20))`，整体超时后通过 `.onErrorResume(...)` 记录错误并返回一条系统提示，再封装为 `ServerSentEvent` 与心跳流合并输出；避免 SSE 永久挂起。
   - `doFinally` 清理 MDC 中的 `requestId`，保证日志上下文不串号。
 
 - **天气工具**（`WeatherTool`）：
@@ -71,3 +71,12 @@
 - `application.yml` 中 `management.endpoints.web.exposure.include` 仅暴露 `health`、`info`；`management.endpoint.health.show-details` / `show-components` 为 `when_authorized`，匿名调用只得到聚合状态（如 `{"status":"UP"}`），带 JWT 时可看 DB、Redis 等组件详情。
 - 配置了 `livenessstate` / `readinessstate` 用于 `health` 语义判断，并开启了 `management.endpoint.health.probes.enabled`；因此子路径 `/actuator/health/liveness` 与 `/actuator/health/readiness` 返回 `200`（匿名可访问）。
 - `SecurityConfig` 对 `/actuator/health/**` 与 `/actuator/info` 使用 `permitAll()`，负载均衡与 Docker/K8s 健康检查无需携带 Token。
+
+更细的 Actuator 概念说明见：`docs/ACTUATOR_HEALTH_BASICS.md`。
+
+### 5.6 SSE 工程化（心跳与断线）
+
+- **返回模型**：`TravelController` / `TravelAgent.chat(...)` 使用 **`Flux<ServerSentEvent<String>>`**，而不是裸 `Flux<String>`，以便区分 **业务 `data`** 与 **保活 `comment`**（符合 SSE 文本格式：`data:` 与以 `:` 开头的注释行）。
+- **心跳**：`Flux.interval` 按 `app.sse.heartbeat-seconds`（默认 15s）发送 `ServerSentEvent.comment("keepalive")`；正文流 `contentFlux` 经 **`.share()`** 与心跳合并（`Flux.merge`），避免重复订阅导致 **重复调用 LLM**。正文结束后通过 **`takeUntilOther(contentFlux.then())`** 停止心跳。
+- **断线**：客户端关闭连接时，下游取消订阅会触发 **`doOnCancel`** 日志（`SSE 订阅已取消…`）。Tomcat 在收尾写 Socket 时偶发 **`IOException`（连接被对端中止）** 属于常见现象，与业务失败不同，可在运维上降级或忽略。
+- **响应头**：`TravelController` 设置 `Cache-Control: no-cache, no-store` 与 `X-Accel-Buffering: no`，减轻缓存与反向代理缓冲对流式响应的影响。

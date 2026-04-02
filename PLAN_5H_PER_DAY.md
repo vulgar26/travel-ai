@@ -428,11 +428,11 @@ Day 3（限流 + 超时）
   - 方案 1：Bucket4j（实现简单）
   - 方案 2：Resilience4j（熔断/重试更完整）
 - 接入点：
-  - `TravelController` 或全局过滤器对 `/travel/chat/...` 做限流
+  - 全局过滤器对 `/travel/chat/...` 做限流（按用户/IP 维度，每分钟限次，超额返回 429 + 统一 JSON 错误体）
 - 外部调用超时：
-  - 如果你接天气真实 HTTP：`WeatherTool.java`（OkHttp 设置 connect/read timeout）
-  - LLM：在 Spring AI 的 options 或底层 client 配置超时（按你使用的方式）
-- 产出：触发限流时返回明确错误码，不是 500
+  - 天气：`WeatherTool.java` 使用 OkHttp 设置 connect/read/call timeout，并对超时/异常返回友好降级提示
+  - LLM：`TravelAgent.chat(...)` 使用 Reactor `.timeout + onErrorResume` 做整体超时与兜底提示，避免 SSE 长时间挂起
+- 产出：触发限流时返回明确错误码（429）与 JSON 错误体，外部依赖超时时 SSE 端能收到清晰系统提示而不是静默失败
 
 Day 4（Actuator health）
 - 改依赖：`pom.xml` 加 `spring-boot-starter-actuator`
@@ -441,14 +441,14 @@ Day 4（Actuator health）
 - 产出：`/actuator/health` 能反映服务依赖状态
 
 Day 5（SSE 工程化）
-- 核心入口：`TravelController` + 返回 `Flux<String>` 的资源释放行为
-  - `TravelController.java`（可加入心跳/断线策略）
-  - `TravelAgent.chat(...)`（确保上游 Flux 在取消订阅后停止工作）
+- 核心入口：`TravelController` + 返回 `Flux<ServerSentEvent<String>>`（`data` 正文 + `comment` 心跳）的资源释放行为
+  - `TravelController.java`（响应头、心跳/断线策略）
+  - `TravelAgent.chat(...)`（`share` + `merge` + `takeUntilOther`，确保上游在取消订阅时可停止、避免重复调用 LLM）
 - 产出：客户端断开后服务端不会持续占用资源（可用日志观察）
 
 Day 6（周总结）
-- 写文档：`docs/ARCHITECTURE.md` 补上鉴权、限流、health、SSE 断线处理等
-- 更新 `docs/RESUME_BULLETS.md`（把“安全 + 上线”写进成果）
+- 写文档：`docs/ARCHITECTURE.md` 补上鉴权、限流、health、SSE 断线处理等（已完成）
+- 更新 `docs/RESUME_BULLETS.md`（把“安全 + 上线”写进成果：已增补「简历三句话」）
 
 ### Week 3（可部署与可复现：Docker Compose + 测试 + CI）
 
