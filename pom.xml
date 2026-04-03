@@ -94,6 +94,16 @@
             <version>42.7.3</version>
         </dependency>
 
+        <!-- Flyway：版本化迁移。Boot 3.3.x 无 spring-boot-starter-flyway（3.4+ 才有），用 BOM 管理的 flyway-core + PG 模块即可触发自动配置 -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+
         <!-- pgvector Java客户端 -->
         <dependency>
             <groupId>com.pgvector</groupId>
@@ -126,6 +136,23 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- Testcontainers：集成测试自动起 Postgres(pgvector) + Redis，无需手工起依赖 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+
         <!-- Bucket4j for rate limiting -->
         <dependency>
             <groupId>com.bucket4j</groupId>
@@ -143,6 +170,17 @@
     </dependencies>
 
     <repositories>
+        <!-- 阿里云 public 偶发未同步 Spring Boot 新构件；用独立 id 避免被 settings.xml 里 mirrorOf=central 误指到不完整镜像 -->
+        <repository>
+            <id>maven-central</id>
+            <url>https://repo.maven.apache.org/maven2</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </repository>
         <repository>
             <id>aliyun</id>
             <url>https://maven.aliyun.com/repository/public</url>

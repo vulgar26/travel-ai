@@ -44,6 +44,7 @@ GET /travel/chat/{conversationId}?query=你的问题
 | 变量名 | 说明 | 是否必需 |
 | --- | --- | --- |
 | `SPRING_AI_DASHSCOPE_API_KEY` | DashScope / 通义千问 API Key（Spring AI） | 是 |
+| `APP_JWT_SECRET` | JWT 签名密钥（须足够长，建议 ≥32 字节随机串） | 生产与 Docker Compose 为是 |
 | `WEATHER_API_KEY` | 天气服务 API Key | 视功能而定 |
 
 本地开发两种方式（二选一）：
@@ -57,3 +58,26 @@ GET /travel/chat/{conversationId}?query=你的问题
 2. 配置 `SPRING_AI_DASHSCOPE_API_KEY`（以及可选的 `WEATHER_API_KEY`），或使用本地覆盖文件 `application-local.yml`
 3. 启动 Redis（本地或 Docker 均可）
 4. 运行 `TravelAiApplication`
+
+### 集成测试（Testcontainers，Week 3 Day 4）
+
+- 需本机 **Docker 已启动**（与 Compose 相同）。
+- 在项目根目录执行：`mvn test`  
+  会启动临时 **Postgres（`pgvector/pgvector:pg16`）** 与 **Redis**，跑 `TravelAiApplicationIntegrationTest`（Flyway 建表、`/actuator/health`、Redis 读写）。
+- 若暂时无 Docker，可只跑纯单元测试：`mvn test -Dtest=KnowledgeServiceImplTest`
+
+### Docker Compose 一键启动（Week 3）
+
+依赖：已安装 Docker Desktop（或 Docker Engine + Compose v2）。
+
+1. 复制环境变量模板：`copy .env.example .env`（PowerShell 可用 `Copy-Item .env.example .env`）
+2. 编辑 `.env`，至少填写 **`SPRING_AI_DASHSCOPE_API_KEY`**，并确认 **`APP_JWT_SECRET`** 与 **`POSTGRES_PASSWORD`**（可与示例一致用于本地）
+3. 在项目根目录执行：`docker compose up -d --build`
+4. 验收：`curl http://localhost:8081/actuator/health` 返回 `{"status":"UP"}`（匿名即可）
+
+说明：
+
+- 使用 **`pgvector/pgvector`** 镜像；**表结构由 Flyway 迁移**（`src/main/resources/db/migration/V1__init_pgvector.sql`）在应用启动时创建，与 `PgVectorStore` 一致。
+- 为避免与宿主机已有 PostgreSQL / Redis **端口冲突**，映射为 **`5433→5432`**、**`6380→6379`**；应用容器内仍通过服务名 **`postgres:5432`**、**`redis:6379`** 访问。
+- `docker-compose.yml` 中 **Postgres / Redis** 默认使用 **DaoCloud 对 Docker Hub 的代理路径**（与 Day1 Dockerfile 一致）；若你在海外，可在 `.env` 里设置 `POSTGRES_IMAGE`、`REDIS_IMAGE` 为官方短名（见 `.env.example` 注释）。
+- 若仍超时，请在 Docker Desktop 中配置 **registry-mirrors**。

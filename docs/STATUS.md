@@ -53,7 +53,7 @@
 
 ## 下一步（对应计划 Week 3 起）
 
-- **可部署与可复现**：Dockerfile / docker-compose、环境变量化 DB/Redis、（可选）CI 跑测试。
+- **可部署与可复现**：已提供根目录 `Dockerfile` 与 **`docker-compose.yml`**（`app` + `pgvector` Postgres + Redis，见 `README.md`）；已接入 **Flyway**（`db/migration/V1__init_pgvector.sql`）；已接入 **Testcontainers**（`TravelAiApplicationIntegrationTest`，`mvn test` 需 Docker）；已接入 **GitHub Actions CI**（runs `mvn test`）。
 - **产品侧仍待加强**：`conversationId` 服务端生成与所有权校验、统一错误体与上传接口结构化返回等（见上文「关键现状风险」）。
 
 ## Week 2 里程碑概览（截至 Day 6 · 周总结）

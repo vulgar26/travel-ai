@@ -1,0 +1,68 @@
+# Week 3 Day 2：应用 + Postgres(pgvector) + Redis
+# 用法：
+#   1) copy .env.example .env   并填写 SPRING_AI_DASHSCOPE_API_KEY 等
+#   2) docker compose up -d --build
+#   3) 验收：curl http://localhost:8081/actuator/health
+#
+# 说明：宿主机端口 5433、6380 映射到容器内 5432、6379，避免与本机已安装的 PG/Redis 默认端口冲突
+#
+# 拉取镜像：默认经 DaoCloud 代理（与 Dockerfile 策略一致），避免直连 docker.io 超时。
+# 若你在海外或代理可用，可在 .env 中设置：
+#   POSTGRES_IMAGE=pgvector/pgvector:pg16
+#   REDIS_IMAGE=redis:7-alpine
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-docker.m.daocloud.io/pgvector/pgvector:pg16}
+    container_name: travel-postgres
+    environment:
+      POSTGRES_DB: ragent
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ragent"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  redis:
+    image: ${REDIS_IMAGE:-docker.m.daocloud.io/library/redis:7-alpine}
+    container_name: travel-redis
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 8
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: travel-ai-planner:local
+    container_name: travel-app
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/ragent
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      APP_JWT_SECRET: ${APP_JWT_SECRET}
+      SPRING_AI_DASHSCOPE_API_KEY: ${SPRING_AI_DASHSCOPE_API_KEY:-}
+      WEATHER_API_KEY: ${WEATHER_API_KEY:-}
+
+volumes:
+  pgdata:

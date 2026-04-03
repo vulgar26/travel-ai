@@ -1,0 +1,19 @@
+# 集成测试（Testcontainers）：密钥占位即可，不向公网发起真实 LLM 调用
+spring:
+  ai:
+    dashscope:
+      api-key: sk-test-placeholder-not-used-in-these-tests
+
+app:
+  security:
+    jwt:
+      secret: test-jwt-secret-must-be-at-least-32-chars-long
+
+weather:
+  api-key: test-weather-key
+
+logging:
+  level:
+    root: warn
+    com.travel.ai: info
+    com.powernode.springmvc: info

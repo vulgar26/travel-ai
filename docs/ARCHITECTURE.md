@@ -1,4 +1,4 @@
-# ARCHITECTURE — 最简链路说明（更新至 Week 2 Day 6）
+# ARCHITECTURE — 最简链路说明（更新至 Week 3 · Docker Compose）
 
 本项目的核心是“一条可解释的 RAG 链路”：**改写 → 检索 → 拼上下文 → 流式生成**，并在此基础上补齐了最小上线安全与可靠性（鉴权 / 会话隔离 / 限流 / 超时 / Actuator 探活 / SSE 心跳与断线感知）。
 
@@ -80,3 +80,10 @@
 - **心跳**：`Flux.interval` 按 `app.sse.heartbeat-seconds`（默认 15s）发送 `ServerSentEvent.comment("keepalive")`；正文流 `contentFlux` 经 **`.share()`** 与心跳合并（`Flux.merge`），避免重复订阅导致 **重复调用 LLM**。正文结束后通过 **`takeUntilOther(contentFlux.then())`** 停止心跳。
 - **断线**：客户端关闭连接时，下游取消订阅会触发 **`doOnCancel`** 日志（`SSE 订阅已取消…`）。Tomcat 在收尾写 Socket 时偶发 **`IOException`（连接被对端中止）** 属于常见现象，与业务失败不同，可在运维上降级或忽略。
 - **响应头**：`TravelController` 设置 `Cache-Control: no-cache, no-store` 与 `X-Accel-Buffering: no`，减轻缓存与反向代理缓冲对流式响应的影响。
+
+## 6. Docker Compose（Week 3）
+
+- 仓库根目录 `docker-compose.yml` 定义 **`app` + `postgres`（`pgvector/pgvector:pg16`）+ `redis`**，同一默认网络内通过服务名互访。
+- **库表结构**：由 **Flyway** 在应用启动时执行 `classpath:db/migration`（当前 **`V1__init_pgvector.sql`**：创建 `vector` 扩展与 **`vector_store`**，列与 `PgVectorStore` 一致）。
+- 环境变量通过 **`.env`**（由 `.env.example` 复制）注入 **`SPRING_DATASOURCE_*`、`SPRING_DATA_REDIS_*`、`APP_JWT_SECRET`、`SPRING_AI_DASHSCOPE_API_KEY`** 等，避免把密钥写进镜像。
+- 宿主机映射 **`8081`**（应用）、**`5433→5432`**（Postgres）、**`6380→6379`**（Redis），降低与本机已装数据库的端口冲突概率。

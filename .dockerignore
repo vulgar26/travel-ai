@@ -1,0 +1,9 @@
+# 构建上下文瘦身：不把本地编译产物和 IDE 垃圾打进镜像构建阶段
+target/
+.git
+.idea
+.vscode
+*.iml
+.cursor
+**/terminals/
+**/agent-tools/
