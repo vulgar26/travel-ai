@@ -7,3 +7,4 @@
 基于 Spring Security + JWT 保护业务接口，将 RAG 向量检索与 ChatMemory 与登录用户绑定，并叠加 Bucket4j 限流与 LLM/外部工具超时降级，形成可演示的最小上线安全与稳定性闭环。
 接入 Spring Boot Actuator（health/info、liveness/readiness probes）与匿名探活白名单，支撑编排与负载均衡健康检查，敏感详情通过 `when_authorized` 控制展示。
 SSE 使用 `ServerSentEvent` 区分 `data` 与 `comment` 心跳、共享上游避免重复 LLM 调用，并在客户端断开时通过取消订阅与日志确认资源释放路径。
+以 Flyway 管理 `pgvector` 版本化建表迁移（`V1__init_pgvector.sql`），并用 Testcontainers 集成测试验证迁移/Redis/health，在 GitHub Actions 的 CI 中自动跑 `mvn test` 保证可部署可复现。

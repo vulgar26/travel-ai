@@ -447,8 +447,9 @@ Day 5（SSE 工程化）
 - 产出：客户端断开后服务端不会持续占用资源（可用日志观察）
 
 Day 6（周总结）
-- 写文档：`docs/ARCHITECTURE.md` 补上鉴权、限流、health、SSE 断线处理等（已完成）
-- 更新 `docs/RESUME_BULLETS.md`（把“安全 + 上线”写进成果：已增补「简历三句话」）
+- 写文档：`docs/ARCHITECTURE.md` 补上 Week3 的 Docker Compose / Flyway / Testcontainers / CI 设计（已完成）
+- 周总结证据补齐：`docs/STATUS.md` 更新 Week3 状态（Flyway 迁移 + Testcontainers 集成测试 + GitHub Actions 自动跑 `mvn test`）
+- 更新 `docs/RESUME_BULLETS.md`：加入“Flyway（pgvector schema）+ Testcontainers（迁移验证）+ CI（可复现）”表述（已完成）
 
 ### Week 3（可部署与可复现：Docker Compose + 测试 + CI）
 
@@ -486,9 +487,9 @@ Day 5（GitHub Actions）
 - 产出：push 后自动跑 `mvn test` 并报告结果
 
 Day 6（演示与复盘）
-- 更新 README：把 Compose 启动命令、测试命令写清楚
-- 新增演示材料：`docs/demo.md`（60 秒流程：Compose 起 → 登录 → 上传 → SSE）
-- 产出：别人照 README 10 分钟能跑起来
+- 更新 README：补齐 Docker Compose 启动 + `/actuator/health` 验收 + `mvn test` 验证说明（已完成）
+- 新增演示材料：`docs/demo.md`（60 秒流程：Compose 起 → 登录拿 token → 上传 → SSE 输出）（已完成）
+- 产出：别人克隆后能按 README 在 10 分钟内完成“起服务 + health + 集成测试验证”
 
 ### Week 4（产品感：最小前端 + 评测/指标 + 简历最终版）
 
