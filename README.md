@@ -2,6 +2,37 @@
 
 基于 Spring Boot 3 + Spring AI Alibaba 构建的 AI 出行规划平台。
 
+**发布里程碑**：本 README 对应 **`v0.1-mvp`**。打标签：`git tag -a v0.1-mvp -m "MVP: RAG + SSE + JWT + Compose + 前端"`；推送：`git push origin v0.1-mvp`。
+
+## 一页速览（MVP）
+
+| 项 | 说明 |
+| --- | --- |
+| 架构细则 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
+| 约 60 秒演示 | [`docs/demo.md`](docs/demo.md)（Compose → 健康检查 → 登录 → 上传 → SSE） |
+| 最小前端 | [`frontend/README.md`](frontend/README.md) |
+| 变更记录 | [`CHANGELOG.md`](CHANGELOG.md) |
+| 简历可投递表述 | [`docs/RESUME_BULLETS.md`](docs/RESUME_BULLETS.md) |
+
+```mermaid
+flowchart LR
+  subgraph client [客户端]
+    FE[frontend 或 API 客户端]
+  end
+  subgraph spring [Spring Boot]
+    TC[TravelController]
+    TA[TravelAgent]
+    VR[改写与向量检索]
+  end
+  PG[(PostgreSQL pgvector)]
+  RD[(Redis)]
+  LLM[通义千问 DashScope]
+  FE -->|JWT + SSE| TC --> TA
+  TA --> VR --> PG
+  TA --> RD
+  TA --> LLM
+```
+
 项目亮点
 
 1、RAG知识库检索：支持文档动态上传入库，自动分块向量化\
@@ -25,7 +56,7 @@
 技术栈\
 Spring Boot 3.3.5\
 Spring AI Alibaba 1.1.2.0\
-MySQL + Redis\
+PostgreSQL + pgvector + Redis\
 通义千问 qwen3.5-plus
 
 核心功能\

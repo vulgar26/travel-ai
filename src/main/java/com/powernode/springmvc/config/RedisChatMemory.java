@@ -72,7 +72,7 @@ public class RedisChatMemory implements ChatMemory {
     private List<SimpleMsg> getSimpleHistory(String conversationId) {
         String key = buildKey(conversationId);
         String json = stringRedisTemplate.opsForValue().get(key);
-        log.info("从Redis原始数据: {}", json);
+        log.debug("从Redis原始数据: {}", json);
         if (json == null || json.isBlank()) {
             return new ArrayList<>();
         }

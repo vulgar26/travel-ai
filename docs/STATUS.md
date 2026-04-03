@@ -1,6 +1,6 @@
 # 项目现状清单（Day 1）
 
-更新时间：2026-04-02  
+更新时间：2026-04-03  
 仓库：`travel-ai-planner`
 
 ## 一句话定位（当前版）
@@ -12,7 +12,7 @@
 - **目标用户**：想要“可演示、可讲清楚工程链路”的后端/RAG 项目作品集（面试/简历展示）。
 - **不做什么（当前明确不覆盖）**：
   - 不承诺生产级安全/鉴权（目前实现的是最小上线安全包：JWT 登录 + 基于用户的会话隔离 + 最小限流与超时保护，而非复杂权限体系）。
-  - 不提供前端 UI（当前以接口 + SSE 为主）。
+  - 前端仅为 **`frontend/`** 最小演示页（非完整产品 UI）。
   - 不做复杂产品功能（支付、订单、地图等）。
 
 ## 已实现能力（基线）
@@ -54,8 +54,9 @@
 ## 下一步（对应计划 Week 3 起）
 
 - **可部署与可复现**：已提供根目录 `Dockerfile` 与 **`docker-compose.yml`**（`app` + `pgvector` Postgres + Redis，见 `README.md`）；已接入 **Flyway**（`db/migration/V1__init_pgvector.sql`）；已接入 **Testcontainers**（`TravelAiApplicationIntegrationTest`，`mvn test` 需 Docker）；已接入 **GitHub Actions CI**（runs `mvn test`）。
-- **Week 4（进行中）**：已新增 **`frontend/`** 最小 Vite + React 页面（登录 + `fetch` 消费 SSE），开发代理 `/api → 8081`，详见 `frontend/README.md` 与根 `README.md`「最小前端」。**Day 3**：SSE 首包输出 **引用片段**（`TravelAgent` + `PgVectorStore` metadata），评测问题集见 **`docs/eval.md`**。
+- **Week 4（进行中）**：已新增 **`frontend/`** 最小 Vite + React 页面（登录 + `fetch` 消费 SSE），开发代理 `/api → 8081`，详见 `frontend/README.md` 与根 `README.md`「最小前端」。**Day 3**：SSE 首包输出 **引用片段**（`TravelAgent` + `PgVectorStore` metadata），评测问题集见 **`docs/eval.md`**。**Day 4**：`TravelAgent` 输出 **`[perf]`** 分段耗时（`rewrite_ms`、`retrieve_ms`、`doc_count`、`llm_first_token_ms`、`llm_stream_wall_ms`），见 `docs/ARCHITECTURE.md` §3。
 - **产品侧仍待加强**：`conversationId` 服务端生成与所有权校验、统一错误体与上传接口结构化返回等（见上文「关键现状风险」）。
+- **Week 4 Day 6（发布整理）**：根 `README` 顶部 **MVP 速览** + 架构示意（Mermaid）；**`CHANGELOG.md`**（`v0.1-mvp`）；打标签说明见 README。Redis 对话读取日志降为 **DEBUG**（`RedisChatMemory`）。
 
 ## Week 2 里程碑概览（截至 Day 6 · 周总结）
 

@@ -45,3 +45,7 @@ src/main/resources/application-local.yml
 # Node / Vite（Week 4 最小前端）
 frontend/node_modules/
 frontend/dist/
+
+# JVM crash dumps（本机内存不足等）
+hs_err_pid*.log
+replay_pid*.log

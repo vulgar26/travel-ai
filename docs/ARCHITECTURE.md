@@ -1,4 +1,4 @@
-# ARCHITECTURE — 最简链路说明（更新至 Week 4 · 可解释 RAG）
+# ARCHITECTURE — 最简链路说明（更新至 Week 4 · 可解释 RAG + 性能打点）
 
 本项目的核心是“一条可解释的 RAG 链路”：**改写 → 检索 → 拼上下文 → 流式生成**，并在此基础上补齐了最小上线安全与可靠性（鉴权 / 会话隔离 / 限流 / 超时 / Actuator 探活 / SSE 心跳与断线感知）。
 
@@ -24,6 +24,18 @@
 
 - 检索条数：`docs.size()`
 - 最终 prompt 长度：`promptWithContext.length()`
+
+**性能分段（`TravelAgent`，INFO 级别，前缀 `[perf]`）**：与 MDC 中的 `requestId` 一起便于按请求对齐日志。
+
+| 字段 | 含义 |
+|------|------|
+| `rewrite_ms` | `QueryRewriter.rewrite` 耗时（毫秒） |
+| `retrieve_ms` | 多路 `similaritySearch` 合并/去重总耗时 |
+| `doc_count` | 进入本轮 prompt 的文档条数 |
+| `llm_first_token_ms` | 流式订阅后首个正文 token 的延迟（TTFT） |
+| `llm_stream_wall_ms` | 从订阅到流结束的 wall 时间（`doFinally` 的 signal） |
+
+未接入 Micrometer/Prometheus 时，用上述日志即可做本机对比与慢请求粗定位。
 
 ## 4. 相关源码入口
 

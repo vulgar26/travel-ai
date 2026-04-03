@@ -513,13 +513,16 @@ Day 4（指标与性能）
   - 记录重写耗时、检索耗时、生成耗时
 - 可选：加入 Micrometer（如果你愿意）
 - 产出：至少一张简单结果（本机平均首包时间等）
+- **当前进度**：`TravelAgent` 在 INFO 中输出 `[perf] rewrite_ms / retrieve_ms / doc_count`（改写结束至检索结束分段）以及 `llm_first_token_ms`、`llm_stream_wall_ms`（流式首包与整段 wall，均带 `requestId`）。本机一次样例（通义千问 + 本地 Postgres）：`rewrite_ms≈2000`、`retrieve_ms≈800`、`llm_first_token_ms≈1500`（仅作定性参考，随网络与模型负载变化）。
 
 Day 5（简历 bullet 最终版）
 - 更新 `docs/RESUME_BULLETS.md`：6 条 bullet 最终稿
 - 产出：每条 bullet 都能对应到仓库里的证据（文件/测试/CI/Compose）
+- **当前进度**：`docs/RESUME_BULLETS.md` 已收敛为 **6 条**，每条末尾附「证据」路径（源码/迁移/CI/前端）。
 
 Day 6（整理发布）
 - 新增发布标签与变更说明：
   - 不需要改代码逻辑，只做 `git tag` 与 README 补齐
 - 产出：`v0.1-mvp` tag 可检索，README 一键跑通
+- **当前进度**：根 `README.md` 顶部增加 MVP 速览表 + Mermaid 架构图 + `docs/demo.md` / `CHANGELOG.md` / `RESUME_BULLETS` 索引；新增 `CHANGELOG.md`；`RedisChatMemory` 中 Redis 原始 JSON 改为 **DEBUG**，减少 INFO 噪音。本地执行：`git tag -a v0.1-mvp -m "MVP"` 后 `git push origin v0.1-mvp`。
 

@@ -20,11 +20,10 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 @Component
@@ -84,7 +83,9 @@ public class TravelAgent {
         String requestId = UUID.randomUUID().toString();
         MDC.put("requestId", requestId);
         log.info("调用AI，conversationId={}, requestId={}, message={}", conversationId, requestId, userMessage);
+        long tRewrite0 = System.nanoTime();
         List<String> queries = queryRewriter.rewrite(userMessage);
+        long rewriteMs = (System.nanoTime() - tRewrite0) / 1_000_000L;
 
         // 按 user_id 做隔离：从 SecurityContext 中获取当前用户
         String currentUser = org.springframework.security.core.context.SecurityContextHolder
@@ -99,6 +100,7 @@ public class TravelAgent {
                 new Filter.Value(currentUser)
         );
 
+        long tRetrieve0 = System.nanoTime();
         List<Document> docs = queries.stream()
                 .flatMap(query -> vectorStore.similaritySearch(
                         SearchRequest.builder()
@@ -110,7 +112,9 @@ public class TravelAgent {
                 .distinct()
                 .limit(5)
                 .collect(Collectors.toList());
+        long retrieveMs = (System.nanoTime() - tRetrieve0) / 1_000_000L;
         log.info("检索到 {} 条知识，queries={}", docs.size(), queries);
+        log.info("[perf] rewrite_ms={} retrieve_ms={} doc_count={} requestId={}", rewriteMs, retrieveMs, docs.size(), requestId);
 
         String context = docs.stream()
                 .map(Document::getText)
@@ -122,6 +126,9 @@ public class TravelAgent {
 
         log.info("最终 prompt 字符数={}", promptWithContext.length());
 
+        AtomicLong llmStartNs = new AtomicLong();
+        AtomicBoolean firstLlmToken = new AtomicBoolean(true);
+
         // 内容流：先 share，便于「正文」与「心跳」共用同一套上游订阅，避免重复调用 LLM
         Flux<String> contentFlux = chatClient.prompt(promptWithContext)
                 .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId))
@@ -131,6 +138,19 @@ public class TravelAgent {
                 .onErrorResume(throwable -> {
                     log.error("调用 AI 超时或出错，conversationId={}, requestId={}, error={}", conversationId, requestId, throwable.toString());
                     return Flux.just("【系统提示】当前 AI 响应较慢或出现异常，请稍后重试。");
+                })
+                .doOnSubscribe(s -> llmStartNs.set(System.nanoTime()))
+                .doOnNext(chunk -> {
+                    if (firstLlmToken.compareAndSet(true, false)) {
+                        long ttftMs = (System.nanoTime() - llmStartNs.get()) / 1_000_000L;
+                        log.info("[perf] llm_first_token_ms={} requestId={}", ttftMs, requestId);
+                    }
+                })
+                .doFinally(signal -> {
+                    if (llmStartNs.get() != 0L) {
+                        long wallMs = (System.nanoTime() - llmStartNs.get()) / 1_000_000L;
+                        log.info("[perf] llm_stream_wall_ms={} signal={} requestId={}", wallMs, signal, requestId);
+                    }
                 })
                 .share();
 
