@@ -37,8 +37,11 @@ export default function App() {
   const [output, setOutput] = useState('')
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
+  const [uploadHint, setUploadHint] = useState('')
+  const [uploading, setUploading] = useState(false)
 
   const abortRef = useRef(null)
+  const fileInputRef = useRef(null)
 
   const login = useCallback(async () => {
     setError('')
@@ -75,6 +78,51 @@ export default function App() {
       localStorage.removeItem('token')
       setStatus('已退出')
   }, [])
+
+  /** 与后端 KnowledgeController 一致：POST /knowledge/upload，表单字段 file，仅 .txt */
+  const uploadKnowledge = useCallback(async () => {
+    setError('')
+    setUploadHint('')
+    if (!token) {
+      setError('请先登录再上传')
+      return
+    }
+    const input = fileInputRef.current
+    const file = input?.files?.[0]
+    if (!file) {
+      setError('请选择 .txt 文件')
+      return
+    }
+    if (!file.name.toLowerCase().endsWith('.txt')) {
+      setError('仅支持 .txt')
+      return
+    }
+    setUploading(true)
+    setStatus('上传中…')
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch('/api/knowledge/upload', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      })
+      const text = await res.text()
+      if (!res.ok) {
+        setError(`上传失败 ${res.status}：${text}`)
+        setStatus('')
+        return
+      }
+      setUploadHint(text)
+      setStatus('上传完成')
+      if (input) input.value = ''
+    } catch (e) {
+      setError(e.message ?? String(e))
+      setStatus('')
+    } finally {
+      setUploading(false)
+    }
+  }, [token])
 
   const stopStream = useCallback(() => {
     abortRef.current?.abort()
@@ -139,7 +187,7 @@ export default function App() {
         <p className="hint">
           本页通过 Vite 代理访问后端{' '}
           <code>/api → http://127.0.0.1:8081</code>。请先启动 Spring Boot（默认 8081），再{' '}
-          <code>npm run dev</code>。
+          <code>npm run dev</code>。检索按当前登录用户隔离：需先<strong>上传 .txt 知识</strong>再提问，否则会显示「未命中知识库」。
         </p>
       </header>
 
@@ -170,6 +218,26 @@ export default function App() {
         {token ? (
           <p className="mono small">Token 已就绪（前 24 字符）：{token.slice(0, 24)}…</p>
         ) : null}
+      </section>
+
+      <section className="card">
+        <h2>上传知识（.txt）</h2>
+        <p className="hint small" style={{ marginTop: 0 }}>
+          后端会分块并向量化入库；仅当 metadata 含当前用户的 <code>user_id</code> 时才会被检索命中。若库里是旧数据（空
+          metadata），请重新上传一次。
+        </p>
+        <div className="row" style={{ alignItems: 'flex-end' }}>
+          <label className="block" style={{ flex: 1, marginBottom: 0 }}>
+            选择文件
+            <input ref={fileInputRef} type="file" accept=".txt,text/plain" />
+          </label>
+        </div>
+        <div className="actions">
+          <button type="button" onClick={uploadKnowledge} disabled={!token || uploading}>
+            {uploading ? '上传中…' : '上传到知识库'}
+          </button>
+        </div>
+        {uploadHint ? <p className="status">{uploadHint}</p> : null}
       </section>
 
       <section className="card">
