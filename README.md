@@ -41,14 +41,14 @@ flowchart LR
 
 ## 项目亮点
 
-| # | 能力 | 说明 |
-| --- | --- | --- |
-| 1 | **RAG 知识库** | 上传 txt → 分块 → 向量化写入 **PostgreSQL + pgvector**；检索结果注入 prompt。 |
-| 2 | **查询改写 + 多路召回** | 将用户问题改写成 3 条检索 query，分别检索后合并去重，提高召回覆盖面。 |
-| 3 | **工具调用** | 集成天气 API（可选配置）；模型按需调用 `WeatherTool`。 |
-| 4 | **对话记忆** | **Redis** 持久化多轮上下文（按用户 + 会话隔离）。 |
-| 5 | **SSE 流式输出** | `text/event-stream` 逐段返回；首包可附带 **引用片段**（可解释 RAG）。 |
-| 6 | **向量持久化** | 自研实现 Spring AI `VectorStore`（JDBC + pgvector），重启不丢向量。 |
+- **一条 RAG 链路收口**：`QueryRewriter` 生成多路检索 query → `VectorStore`（pgvector）召回 → 拼进 prompt → **SSE** 流式输出；同一请求内不重复检索，成本与延迟可控。
+- **按用户隔离的知识与记忆**：上传与检索写入 `metadata.user_id`，SQL 侧过滤；Redis 对话 key 与 **Spring Security** 当前用户绑定，避免多账号串库。
+- **可解释 + 可观测**：SSE **首段 `data`** 输出本轮引用片段（id / 来源 / 正文摘要）；日志中带 MDC `requestId` 与 **`[perf]`** 分段耗时（改写、检索、首 token、流结束），便于对照慢在哪一段。
+- **最小「能上线」包**：JWT 保护业务接口；`/travel/chat` **Bucket4j** 限流（超额 429 + JSON）；LLM 与天气工具 **超时与降级**；**Actuator** 健康探活，方便 Compose / 负载均衡验收。
+- **SSE 工程细节**：`ServerSentEvent` 区分正文与 **comment 心跳**；`share()` 合并心跳与正文，避免重复打模型；断线时取消订阅可追踪。
+- **向量与 schema 工程化**：自研 **JDBC + pgvector** 实现 Spring AI `VectorStore`；**Flyway** 管理表结构；**Docker Compose** 拉齐 App / Postgres / Redis。
+- **可复现与产品感**：**Testcontainers** 集成测试 + **GitHub Actions** `mvn test`；仓库内 **`frontend/`** 最小登录 + 流式演示页；评测问题集见 **`docs/eval.md`**。
+- **工具扩展**：集成 **天气** `WeatherTool`（API Key 可选），由模型按需调用。
 
 ---
 
