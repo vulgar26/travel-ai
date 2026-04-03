@@ -59,6 +59,22 @@ GET /travel/chat/{conversationId}?query=你的问题
 3. 启动 Redis（本地或 Docker 均可）
 4. 运行 `TravelAiApplication`
 
+### 最小前端（Week 4，可选）
+
+用于在浏览器里**登录**并**流式查看** `/travel/chat` 的 SSE 输出（Vite 将 `/api` 代理到 `http://127.0.0.1:8081`，无需改后端 CORS）。
+
+1. 先按上文启动后端（本机 `8081` 或 Compose 映射的 `8081`）。
+2. 在另一个终端执行：
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+3. 浏览器打开终端里提示的地址（一般为 `http://localhost:5173`），使用演示账号 `demo` / `demo123` 登录后点「开始流式输出」。  
+更细说明见 `frontend/README.md`。
+
 ### 集成测试（Testcontainers，Week 3 Day 4）
 
 - 需本机 **Docker 已启动**（与 Compose 相同）。

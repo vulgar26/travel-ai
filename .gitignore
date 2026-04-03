@@ -41,3 +41,7 @@ build/
 src/main/resources/application-local.yml
 .env
 *.local.yml
+
+# Node / Vite（Week 4 最小前端）
+frontend/node_modules/
+frontend/dist/

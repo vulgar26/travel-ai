@@ -21,6 +21,10 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+    # 已有库 public 里已有表/扩展，但从未跑过 Flyway（无 flyway_schema_history）时，需先 baseline 再迁移
+    baseline-on-migrate: true
+    # 设为 0：基线后仍会执行 V1（V1 内为 IF NOT EXISTS，可安全重跑）；默认 1 会导致 V1 被当作已处于基线而跳过
+    baseline-version: 0
 
   # Redis配置
   data:

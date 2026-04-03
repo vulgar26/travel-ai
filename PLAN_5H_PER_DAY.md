@@ -499,6 +499,7 @@ Day 1～2（最小前端）
   - 实现登录拿 token
   - 使用 EventSource 或 fetch streaming 消费 `/travel/chat` SSE
 - 产出：网页里能点、能看到流式输出
+- **当前进度**：已落地最小 **`frontend/`（Vite + React）**：`/api` 代理到本机 `8081`、`POST /api/auth/login` 存 token、`fetch` 解析 SSE（因 Bearer 无法走 `EventSource`）。
 
 Day 3（RAG 质量与可解释）
 - 回答增强：
