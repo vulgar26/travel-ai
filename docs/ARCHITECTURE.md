@@ -1,4 +1,4 @@
-# ARCHITECTURE — 最简链路说明（更新至 Week 3 · Docker Compose）
+# ARCHITECTURE — 最简链路说明（更新至 Week 4 · 可解释 RAG）
 
 本项目的核心是“一条可解释的 RAG 链路”：**改写 → 检索 → 拼上下文 → 流式生成**，并在此基础上补齐了最小上线安全与可靠性（鉴权 / 会话隔离 / 限流 / 超时 / Actuator 探活 / SSE 心跳与断线感知）。
 
@@ -30,7 +30,8 @@
 - 对话 SSE 入口：`src/main/java/com/powernode/springmvc/controller/TravelController.java`
 - RAG 链路实现：`src/main/java/com/powernode/springmvc/agent/TravelAgent.java`
 - 查询改写：`src/main/java/com/powernode/springmvc/agent/QueryRewriter.java`
-- 向量检索：`src/main/java/com/powernode/springmvc/config/PgVectorStore.java`
+- 向量检索：`src/main/java/com/powernode/springmvc/config/PgVectorStore.java`（`metadata` JSON 持久化；`similaritySearch` 对 `user_id` 等式过滤走 SQL `metadata->>'user_id'`）
+- 评测问题集：`docs/eval.md`
 
 ## 5. 安全与可靠性（Week 2 进展）
 

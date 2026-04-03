@@ -506,6 +506,7 @@ Day 3（RAG 质量与可解释）
   - `TravelAgent.java`：把“检索片段/来源ID”以某种形式返回（最小版即可）
 - 新增文件：`docs/eval.md`（10 个固定问题 + 观察结果）
 - 产出：你能说明为什么答案更稳（哪怕是定性 + 回归对比）
+- **当前进度**：`PgVectorStore` 持久化/回读 `metadata` 并支持 `user_id` SQL 过滤；`TravelAgent` 在 SSE **首段 `data`** 输出 `【引用片段】`（含 id、来源、截断正文）；已新增 `docs/eval.md`。
 
 Day 4（指标与性能）
 - 新增/改日志或 metrics：

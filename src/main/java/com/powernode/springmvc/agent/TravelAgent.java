@@ -20,7 +20,10 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -134,13 +137,46 @@ public class TravelAgent {
         Flux<ServerSentEvent<String>> tokenEvents = contentFlux.map(chunk ->
                 ServerSentEvent.<String>builder().data(chunk).build());
 
+        // 可解释性：首包先输出本轮命中的检索片段（与 LLM 正文分离，便于前端/日志观察）
+        String citationBlock = buildCitationBlock(docs);
+        Flux<ServerSentEvent<String>> citationFlux = Flux.just(
+                ServerSentEvent.<String>builder().data(citationBlock).build()
+        );
+
         // 心跳：按 SSE 规范使用 comment 行（: keepalive），不占用 data 通道，前端可忽略
         Flux<ServerSentEvent<String>> keepAlive = Flux.interval(Duration.ofSeconds(Math.max(1, sseHeartbeatSeconds)))
                 .takeUntilOther(contentFlux.then())
                 .map(tick -> ServerSentEvent.<String>builder().comment("keepalive").build());
 
-        return Flux.merge(tokenEvents, keepAlive)
+        return Flux.concat(citationFlux, Flux.merge(tokenEvents, keepAlive))
                 .doOnCancel(() -> log.info("SSE 订阅已取消（多为客户端断开），conversationId={}, requestId={}", conversationId, requestId))
                 .doFinally(signalType -> MDC.remove("requestId"));
+    }
+
+    /**
+     * 将本轮用于拼 prompt 的检索结果，以纯文本块形式前置输出（SSE 首段 data）。
+     */
+    private String buildCitationBlock(List<Document> docs) {
+        if (docs == null || docs.isEmpty()) {
+            return "【引用片段】\n（本轮未命中知识库）\n\n";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("【引用片段】（共 ").append(docs.size()).append(" 条）\n");
+        int i = 1;
+        for (Document d : docs) {
+            String id = d.getId() != null ? d.getId() : "(无id)";
+            Object src = d.getMetadata() != null ? d.getMetadata().get("source_name") : null;
+            String preview = d.getText() != null ? d.getText() : "";
+            if (preview.length() > 200) {
+                preview = preview.substring(0, 200) + "…";
+            }
+            sb.append("[").append(i++).append("] id=").append(id);
+            if (src != null) {
+                sb.append(" 来源=").append(src);
+            }
+            sb.append("\n").append(preview).append("\n\n");
+        }
+        sb.append("────────\n");
+        return sb.toString();
     }
 }
