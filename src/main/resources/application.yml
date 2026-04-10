@@ -5,13 +5,6 @@ spring:
   application:
     name: travel-ai-planner
 
-#  # 数据库配置
-#  datasource:
-#    driver-class-name: com.mysql.cj.jdbc.Driver
-#    url: jdbc:mysql://127.0.0.1:3306/travel_ai?useSSL=false&serverTimezone=Asia/Shanghai
-#    username: root
-#    password: ${DB_PASSWORD}
-
   datasource:
     url: jdbc:postgresql://127.0.0.1:5432/ragent
     username: postgres
@@ -47,13 +40,6 @@ spring:
         index-type: hnsw
         distance-type: cosine_distance
         dimensions: 1024
-
-# MyBatis Plus配置
-mybatis-plus:
-  mapper-locations: classpath:/mapper/*.xml
-  type-aliases-package: com.travel.ai.entity
-  configuration:
-    map-underscore-to-camel-case: true
 
 logging:
   level:
@@ -97,3 +83,15 @@ app:
     jwt:
       secret: ${APP_JWT_SECRET:change-me-in-local}
       expire-seconds: 3600
+  # Bucket4j 限流：次数与文档、README 保持一致；可按环境覆盖
+  rate-limit:
+    chat:
+      # 每个登录用户（或匿名时的 IP）每分钟允许发起的「聊天 SSE」请求次数
+      requests-per-minute: 5
+    login:
+      # 每个 IP 每分钟允许的登录 POST 次数，防止撞库/暴力尝试（与聊天限流分开计数）
+      requests-per-minute: 20
+  rag:
+    rewrite:
+      # QueryRewriter 单行最大长度，防止异常输出撑爆 embedding 请求
+      max-line-length: 256

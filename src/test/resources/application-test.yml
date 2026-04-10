@@ -8,6 +8,12 @@ app:
   security:
     jwt:
       secret: test-jwt-secret-must-be-at-least-32-chars-long
+  # 集成测试可能多次调登录/业务接口，放宽限流避免 CI 偶发 429
+  rate-limit:
+    chat:
+      requests-per-minute: 1000
+    login:
+      requests-per-minute: 1000
 
 weather:
   api-key: test-weather-key
@@ -16,4 +22,3 @@ logging:
   level:
     root: warn
     com.travel.ai: info
-    com.powernode.springmvc: info
