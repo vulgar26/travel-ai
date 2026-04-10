@@ -71,7 +71,8 @@ public class EvalChatController {
     /**
      * 评测聊天：非流式；测量从进入本方法到返回前的耗时，写入 {@code latency_ms}。
      */
-    @PostMapping(value = "/chat", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    // 显式声明 UTF-8，避免部分客户端（如 PowerShell Invoke-WebRequest）按默认编码解读导致中文乱码。
+    @PostMapping(value = "/chat", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE + ";charset=UTF-8")
     public EvalChatResponse chat(@RequestBody EvalChatRequest request) {
         long startMs = System.currentTimeMillis();
         // 先走同一套 meta/capabilities 拼装，保证契约字段始终齐全；空 query 仅覆盖 answer/behavior。

@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.http.HttpHeaders;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -14,7 +15,9 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.stream.Stream;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -42,6 +45,7 @@ class EvalChatControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CONTENT_TYPE, containsString("charset=UTF-8")))
                 .andExpect(jsonPath("$.answer").isString())
                 .andExpect(jsonPath("$.behavior").value("answer"))
                 .andExpect(jsonPath("$.latency_ms").isNumber())
@@ -76,6 +80,7 @@ class EvalChatControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(jsonBody))
                 .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CONTENT_TYPE, containsString("charset=UTF-8")))
                 .andExpect(jsonPath("$.meta.replan_count").value(EvalChatMeta.P0_REPLAN_COUNT))
                 .andExpect(jsonPath("$.meta.step_count").value(expectedStageCount))
                 .andExpect(jsonPath("$.meta.stage_order.length()").value(expectedStageCount));
@@ -87,6 +92,7 @@ class EvalChatControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"query\":\"  \"}"))
                 .andExpect(status().isOk())
+                .andExpect(header().string(HttpHeaders.CONTENT_TYPE, containsString("charset=UTF-8")))
                 .andExpect(jsonPath("$.behavior").value("clarify"))
                 .andExpect(jsonPath("$.latency_ms").isNumber())
                 .andExpect(jsonPath("$.meta.stage_order.length()").value(0))
