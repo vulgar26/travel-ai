@@ -12,6 +12,11 @@ import java.util.List;
 public class EvalChatMeta {
 
     /**
+     * P0 硬指标：禁止动态 replan 循环，对外 {@code replan_count} 必须恒为该值（eval 可回归统计）。
+     */
+    public static final int P0_REPLAN_COUNT = 0;
+
+    /**
      * 本轮模式：如 {@code EVAL}、{@code AGENT}；若请求体未传 {@code mode}，默认 {@code EVAL}。
      */
     private String mode;

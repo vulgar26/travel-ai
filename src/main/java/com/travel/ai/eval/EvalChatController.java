@@ -25,23 +25,34 @@ import org.springframework.web.bind.annotation.RestController;
  *   }'
  * }</pre>
  *
- * <h2>最小响应示例（字段名全部为 snake_case，Day2 起含 meta 线性阶段观测字段）</h2>
+ * <h2>Day3 证据 ①：正常 query（走满线性占位流水线）</h2>
+ * <p>{@code step_count == stage_order.length}（此处为 5）；{@code replan_count} 恒为 0。</p>
  * <pre>{@code
  * {
- *   "answer": "Day2：已固定串行阶段…",
+ *   "answer": "Day3：meta 可观测稳定…",
  *   "behavior": "answer",
  *   "latency_ms": 3,
- *   "capabilities": {
- *     "retrieval": { "supported": true, "score": false },
- *     "tools": { "supported": true, "outcome": true },
- *     "streaming": { "ttft": false },
- *     "guardrails": { "quote_only": false, "evidence_map": false, "reflection": false }
- *   },
+ *   "capabilities": { ... },
  *   "meta": {
  *     "mode": "AGENT",
  *     "request_id": "550e8400-e29b-41d4-a716-446655440000",
  *     "stage_order": ["PLAN","RETRIEVE","TOOL","WRITE","GUARD"],
  *     "step_count": 5,
+ *     "replan_count": 0
+ *   }
+ * }
+ * }</pre>
+ *
+ * <h2>Day3 证据 ②：空/空白 query（clarify，不跑流水线）</h2>
+ * <p>{@code stage_order} 为空、{@code step_count=0}；{@code replan_count} 仍为 0。</p>
+ * <pre>{@code
+ * {
+ *   "behavior": "clarify",
+ *   "meta": {
+ *     "mode": "EVAL",
+ *     "request_id": "...",
+ *     "stage_order": [],
+ *     "step_count": 0,
  *     "replan_count": 0
  *   }
  * }

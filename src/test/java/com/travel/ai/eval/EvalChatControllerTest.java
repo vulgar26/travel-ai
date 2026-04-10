@@ -1,6 +1,10 @@
 package com.travel.ai.eval;
 
+import com.travel.ai.eval.dto.EvalChatMeta;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -8,12 +12,14 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.util.stream.Stream;
+
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Day1/Day2：校验 {@code POST /api/v1/eval/chat} 非流式 JSON、snake_case，以及 {@code meta.stage_order} 等线性阶段字段。
+ * Day1–Day3：契约、snake_case，以及 {@code meta} 可观测稳定性（{@code stage_order} / {@code step_count} / {@code replan_count}）。
  * <p>
  * {@code @WebMvcTest} 会拉起 Spring Security 与 {@link com.travel.ai.security.JwtAuthFilter}，但不会加载真实
  * {@code @Service JwtService}。用 {@link EvalChatControllerTestConfig} 显式注册一个 {@code JwtService} Bean（Mock），
@@ -48,7 +54,31 @@ class EvalChatControllerTest {
                 .andExpect(jsonPath("$.meta.stage_order[0]").value("PLAN"))
                 .andExpect(jsonPath("$.meta.stage_order[4]").value("GUARD"))
                 .andExpect(jsonPath("$.meta.step_count").value(5))
-                .andExpect(jsonPath("$.meta.replan_count").value(0));
+                .andExpect(jsonPath("$.meta.replan_count").value(EvalChatMeta.P0_REPLAN_COUNT));
+    }
+
+    /**
+     * Day3：多组输入下 {@code replan_count} 恒为 P0 固定值，且 {@code step_count == stage_order.length}。
+     */
+    static Stream<Arguments> metaObservabilityCases() {
+        return Stream.of(
+                Arguments.of("{\"query\":\"上海\",\"mode\":\"AGENT\"}", 5),
+                Arguments.of("{\"query\":\"仅一行\",\"mode\":\"EVAL\"}", 5),
+                Arguments.of("{\"query\":\"  \"}", 0),
+                Arguments.of("{\"query\":\"\"}", 0)
+        );
+    }
+
+    @ParameterizedTest
+    @MethodSource("metaObservabilityCases")
+    void replanCountAlwaysP0_andStepCountEqualsStageOrderLength(String jsonBody, int expectedStageCount) throws Exception {
+        mockMvc.perform(post("/api/v1/eval/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonBody))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.meta.replan_count").value(EvalChatMeta.P0_REPLAN_COUNT))
+                .andExpect(jsonPath("$.meta.step_count").value(expectedStageCount))
+                .andExpect(jsonPath("$.meta.stage_order.length()").value(expectedStageCount));
     }
 
     @Test
@@ -61,6 +91,6 @@ class EvalChatControllerTest {
                 .andExpect(jsonPath("$.latency_ms").isNumber())
                 .andExpect(jsonPath("$.meta.stage_order.length()").value(0))
                 .andExpect(jsonPath("$.meta.step_count").value(0))
-                .andExpect(jsonPath("$.meta.replan_count").value(0));
+                .andExpect(jsonPath("$.meta.replan_count").value(EvalChatMeta.P0_REPLAN_COUNT));
     }
 }

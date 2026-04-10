@@ -30,7 +30,7 @@ public class EvalChatService {
         boolean skipPipeline = request.getQuery() == null || request.getQuery().isBlank();
 
         EvalChatMeta meta = new EvalChatMeta(mode, requestId);
-        meta.setReplanCount(0);
+        meta.setReplanCount(EvalChatMeta.P0_REPLAN_COUNT);
         if (skipPipeline) {
             meta.setStageOrder(Collections.emptyList());
             meta.setStepCount(0);
@@ -48,7 +48,7 @@ public class EvalChatService {
         );
 
         EvalChatResponse response = new EvalChatResponse();
-        response.setAnswer("Day2：已固定串行阶段 PLAN→RETRIEVE→TOOL→WRITE→GUARD（当前为占位执行，见 meta.stage_order）。");
+        response.setAnswer("Day3：meta 可观测稳定（stage_order / step_count / replan_count=0）；阶段仍为占位执行。");
         response.setBehavior("answer");
         response.setCapabilities(capabilities);
         response.setMeta(meta);
