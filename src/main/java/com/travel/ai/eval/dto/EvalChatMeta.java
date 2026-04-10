@@ -3,8 +3,10 @@ package com.travel.ai.eval.dto;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 
+import java.util.List;
+
 /**
- * 评测响应 {@code meta}：P0 至少包含 {@code mode}；Day1 骨架额外带 {@code request_id} 便于日志串联。
+ * 评测响应 {@code meta}：P0 至少包含 {@code mode}；另含 travel-ai 可控性字段（见 {@code plans/p0-execution-map.md} 附录 C3）。
  */
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public class EvalChatMeta {
@@ -16,6 +18,18 @@ public class EvalChatMeta {
 
     /** 单次请求唯一 id（UUID），便于与网关/日志 trace 对齐。 */
     private String requestId;
+
+    /**
+     * 本请求实际经过的线性阶段序列（大写），为 {@code PLAN|RETRIEVE|TOOL|WRITE|GUARD} 的子序列。
+     * 空 query 等未跑流水线时为 {@code []}。
+     */
+    private List<String> stageOrder;
+
+    /** 实际执行过的阶段数；应与 {@code stage_order.length} 一致（串行计数）。 */
+    private int stepCount;
+
+    /** P0 禁止 replan 循环，恒为 {@code 0}。 */
+    private int replanCount;
 
     public EvalChatMeta() {
     }
@@ -39,5 +53,29 @@ public class EvalChatMeta {
 
     public void setRequestId(String requestId) {
         this.requestId = requestId;
+    }
+
+    public List<String> getStageOrder() {
+        return stageOrder;
+    }
+
+    public void setStageOrder(List<String> stageOrder) {
+        this.stageOrder = stageOrder;
+    }
+
+    public int getStepCount() {
+        return stepCount;
+    }
+
+    public void setStepCount(int stepCount) {
+        this.stepCount = stepCount;
+    }
+
+    public int getReplanCount() {
+        return replanCount;
+    }
+
+    public void setReplanCount(int replanCount) {
+        this.replanCount = replanCount;
     }
 }

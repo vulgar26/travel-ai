@@ -13,7 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Day1：校验 {@code POST /api/v1/eval/chat} 非流式 JSON 与 snake_case 字段名。
+ * Day1/Day2：校验 {@code POST /api/v1/eval/chat} 非流式 JSON、snake_case，以及 {@code meta.stage_order} 等线性阶段字段。
  * <p>
  * {@code @WebMvcTest} 会拉起 Spring Security 与 {@link com.travel.ai.security.JwtAuthFilter}，但不会加载真实
  * {@code @Service JwtService}。用 {@link EvalChatControllerTestConfig} 显式注册一个 {@code JwtService} Bean（Mock），
@@ -43,7 +43,12 @@ class EvalChatControllerTest {
                 .andExpect(jsonPath("$.capabilities.streaming.ttft").value(false))
                 .andExpect(jsonPath("$.capabilities.guardrails.quote_only").value(false))
                 .andExpect(jsonPath("$.meta.mode").value("AGENT"))
-                .andExpect(jsonPath("$.meta.request_id").isString());
+                .andExpect(jsonPath("$.meta.request_id").isString())
+                .andExpect(jsonPath("$.meta.stage_order.length()").value(5))
+                .andExpect(jsonPath("$.meta.stage_order[0]").value("PLAN"))
+                .andExpect(jsonPath("$.meta.stage_order[4]").value("GUARD"))
+                .andExpect(jsonPath("$.meta.step_count").value(5))
+                .andExpect(jsonPath("$.meta.replan_count").value(0));
     }
 
     @Test
@@ -53,6 +58,9 @@ class EvalChatControllerTest {
                         .content("{\"query\":\"  \"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.behavior").value("clarify"))
-                .andExpect(jsonPath("$.latency_ms").isNumber());
+                .andExpect(jsonPath("$.latency_ms").isNumber())
+                .andExpect(jsonPath("$.meta.stage_order.length()").value(0))
+                .andExpect(jsonPath("$.meta.step_count").value(0))
+                .andExpect(jsonPath("$.meta.replan_count").value(0));
     }
 }

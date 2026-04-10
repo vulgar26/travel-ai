@@ -25,10 +25,10 @@ import org.springframework.web.bind.annotation.RestController;
  *   }'
  * }</pre>
  *
- * <h2>最小响应示例（字段名全部为 snake_case）</h2>
+ * <h2>最小响应示例（字段名全部为 snake_case，Day2 起含 meta 线性阶段观测字段）</h2>
  * <pre>{@code
  * {
- *   "answer": "评测接口骨架已就绪（Day1）。…",
+ *   "answer": "Day2：已固定串行阶段…",
  *   "behavior": "answer",
  *   "latency_ms": 3,
  *   "capabilities": {
@@ -39,7 +39,10 @@ import org.springframework.web.bind.annotation.RestController;
  *   },
  *   "meta": {
  *     "mode": "AGENT",
- *     "request_id": "550e8400-e29b-41d4-a716-446655440000"
+ *     "request_id": "550e8400-e29b-41d4-a716-446655440000",
+ *     "stage_order": ["PLAN","RETRIEVE","TOOL","WRITE","GUARD"],
+ *     "step_count": 5,
+ *     "replan_count": 0
  *   }
  * }
  * }</pre>
