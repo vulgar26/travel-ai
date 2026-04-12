@@ -1,17 +1,19 @@
 package com.travel.ai.agent;
 
 import jakarta.annotation.PostConstruct;
-import lombok.extern.slf4j.Slf4j;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-@Slf4j
 @Component
 public class WeatherTool {
+
+    private static final Logger log = LoggerFactory.getLogger(WeatherTool.class);
     @Value("${weather.api-key}")
     private String apiKey;
 

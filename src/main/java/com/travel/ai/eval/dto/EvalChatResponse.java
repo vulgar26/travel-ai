@@ -1,5 +1,6 @@
 package com.travel.ai.eval.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 
@@ -8,6 +9,7 @@ import com.fasterxml.jackson.databind.annotation.JsonNaming;
  * <p>
  * 必填：{@code answer}、{@code behavior}、{@code latency_ms}、{@code capabilities}、{@code meta}。
  */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public class EvalChatResponse {
 
@@ -23,6 +25,12 @@ public class EvalChatResponse {
 
     /** 至少含 {@code mode}（见 {@link EvalChatMeta}）。 */
     private EvalChatMeta meta;
+
+    /** 如 {@code PARSE_ERROR}；仅在有归因时返回。 */
+    private String errorCode;
+
+    /** 工具归因（{@code used} / {@code outcome}）；未走评测工具场景时不返回。 */
+    private EvalChatResultTool tool;
 
     public String getAnswer() {
         return answer;
@@ -62,5 +70,21 @@ public class EvalChatResponse {
 
     public void setMeta(EvalChatMeta meta) {
         this.meta = meta;
+    }
+
+    public String getErrorCode() {
+        return errorCode;
+    }
+
+    public void setErrorCode(String errorCode) {
+        this.errorCode = errorCode;
+    }
+
+    public EvalChatResultTool getTool() {
+        return tool;
+    }
+
+    public void setTool(EvalChatResultTool tool) {
+        this.tool = tool;
     }
 }

@@ -1,6 +1,7 @@
 package com.travel.ai.agent;
 
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -16,9 +17,10 @@ import java.util.stream.Collectors;
  * 升级点（UPGRADE P2-1）：不盲目信任模型输出——解析失败、空行、行数不足时<b>回退/补齐</b>，
  * 并对单行长度做截断，避免异常长文本拖垮 embedding 调用。
  */
-@Slf4j
 @Component
 public class QueryRewriter {
+
+    private static final Logger log = LoggerFactory.getLogger(QueryRewriter.class);
 
     private final ChatClient chatClient;
 

@@ -1,5 +1,6 @@
 package com.travel.ai.eval.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 
@@ -8,6 +9,7 @@ import java.util.List;
 /**
  * 评测响应 {@code meta}：P0 至少包含 {@code mode}；另含 travel-ai 可控性字段（见 {@code plans/p0-execution-map.md} 附录 C3）。
  */
+@JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public class EvalChatMeta {
 
@@ -35,6 +37,40 @@ public class EvalChatMeta {
 
     /** P0 禁止 replan 循环，恒为 {@code 0}。 */
     private int replanCount;
+
+    /**
+     * Plan 解析尝试次数：{@code 1} 首次成功；{@code 2} 首次失败后经过一次 repair 再解析。
+     * 未执行 plan 解析（如空 query）时不返回该字段。
+     */
+    private Integer planParseAttempts;
+
+    /**
+     * {@code success|repaired|failed}，见 {@code plans/travel-ai-upgrade.md} P0 Plan 解析治理。
+     */
+    private String planParseOutcome;
+
+    /**
+     * 本请求工具调用次数（P0 串行，Day6 stub 为 0 或 1）；未走评测工具场景时不返回。
+     */
+    private Integer toolCallsCount;
+
+    /** {@code ok|timeout|error}，与顶层 {@code tool.outcome} 一致；未走工具场景时不返回。 */
+    private String toolOutcome;
+
+    /**
+     * 是否处于低置信/空命中等门控（P0 不启用 score 阈值时仍可由 stub 置 true 供 eval 统计）。
+     */
+    private Boolean lowConfidence;
+
+    /**
+     * 门控原因枚举式说明（非空时可回归）；未触发门控时不返回。
+     */
+    private List<String> reasons;
+
+    /**
+     * 检索命中条数（评测 stub）；空命中场景为 0；未参与门控时不返回。
+     */
+    private Integer retrieveHitCount;
 
     public EvalChatMeta() {
     }
@@ -82,5 +118,61 @@ public class EvalChatMeta {
 
     public void setReplanCount(int replanCount) {
         this.replanCount = replanCount;
+    }
+
+    public Integer getPlanParseAttempts() {
+        return planParseAttempts;
+    }
+
+    public void setPlanParseAttempts(Integer planParseAttempts) {
+        this.planParseAttempts = planParseAttempts;
+    }
+
+    public String getPlanParseOutcome() {
+        return planParseOutcome;
+    }
+
+    public void setPlanParseOutcome(String planParseOutcome) {
+        this.planParseOutcome = planParseOutcome;
+    }
+
+    public Integer getToolCallsCount() {
+        return toolCallsCount;
+    }
+
+    public void setToolCallsCount(Integer toolCallsCount) {
+        this.toolCallsCount = toolCallsCount;
+    }
+
+    public String getToolOutcome() {
+        return toolOutcome;
+    }
+
+    public void setToolOutcome(String toolOutcome) {
+        this.toolOutcome = toolOutcome;
+    }
+
+    public Boolean getLowConfidence() {
+        return lowConfidence;
+    }
+
+    public void setLowConfidence(Boolean lowConfidence) {
+        this.lowConfidence = lowConfidence;
+    }
+
+    public List<String> getReasons() {
+        return reasons;
+    }
+
+    public void setReasons(List<String> reasons) {
+        this.reasons = reasons;
+    }
+
+    public Integer getRetrieveHitCount() {
+        return retrieveHitCount;
+    }
+
+    public void setRetrieveHitCount(Integer retrieveHitCount) {
+        this.retrieveHitCount = retrieveHitCount;
     }
 }

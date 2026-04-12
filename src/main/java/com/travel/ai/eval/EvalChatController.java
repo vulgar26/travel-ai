@@ -57,6 +57,30 @@ import org.springframework.web.bind.annotation.RestController;
  *   }
  * }
  * }</pre>
+ *
+ * <h2>Day5：{@code plan_parse_attempts} / {@code plan_parse_outcome}（repair once）</h2>
+ * <p>非空 {@code query} 会先解析 plan（未传 {@code plan_raw} 时用内置合法默认 JSON）；失败则最多 repair 一次。
+ * {@code success|repaired|failed}；连续失败时 {@code behavior=clarify}、{@code error_code=PARSE_ERROR}。</p>
+ *
+ * <h2>Day6：{@code eval_tool_scenario} 串行工具 stub + 超时降级（HTTP 200）</h2>
+ * <p>{@code eval_tool_scenario=success}：{@code behavior=tool}，{@code tool.used=true}，{@code tool.outcome=ok}，
+ * {@code meta.tool_calls_count=1}，{@code meta.tool_outcome=ok}。</p>
+ * <p>{@code eval_tool_scenario=timeout|error}：仍 200；{@code behavior=answer}，{@code error_code=TOOL_TIMEOUT|TOOL_ERROR}，
+ * {@code tool.used=true}，{@code tool.outcome=timeout|error}。</p>
+ *
+ * <h2>Day7：{@code eval_rag_scenario} 空命中 / 低置信门控（P0 无 score 阈值）</h2>
+ * <p>{@code eval_rag_scenario=empty}：{@code meta.low_confidence=true}，{@code meta.reasons[]} 非空，
+ * {@code meta.retrieve_hit_count=0}，{@code error_code=RETRIEVE_EMPTY}，{@code behavior=clarify}。</p>
+ * <p>{@code eval_rag_scenario=low_conf}：同上低置信与 reasons，命中数 stub 为 1；不设 {@code error_code}（与空命中区分）。</p>
+ *
+ * <h2>Day9：输入鲁棒性（归因稳定）</h2>
+ * <p>Plan 解析成功后对 {@code query} 做高置信安全筛查：典型对抗句式 → {@code behavior=deny}，
+ * {@code error_code=PROMPT_INJECTION_BLOCKED|TOOL_OUTPUT_INJECTION_QUERY_BLOCKED}；长上下文诱导演练句 → {@code clarify}（无 {@code error_code}）。</p>
+ * <p>证据 case（{@code p0-dataset-v0.jsonl}）：{@code p0_v0_attack_prompt_injection_001} 期望 deny；
+ * {@code p0_v0_attack_tool_output_injection_001} 期望 deny；{@code p0_v0_attack_long_context_001} 期望 clarify。</p>
+ *
+ * <h2>Day10：C 线 P0 收敛</h2>
+ * <p>见仓库 {@code docs/DAY10_P0_CLOSURE.md}：{@code pass_rate} / report 引用、剩余 regressions、修复策略与风险、门控定义。</p>
  */
 @RestController
 @RequestMapping("/api/v1/eval")

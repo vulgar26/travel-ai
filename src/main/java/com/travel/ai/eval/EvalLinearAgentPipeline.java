@@ -37,9 +37,21 @@ public final class EvalLinearAgentPipeline {
      * Day2：依次执行五阶段占位逻辑，并返回实际经过的阶段名列表（大写枚举名，与契约一致）。
      */
     public static List<String> runStubStages(EvalChatRequest request) {
+        return runStubStages(request, () -> {});
+    }
+
+    /**
+     * Day6：在 {@link EvalAgentStage#TOOL} 节点插入<strong>串行</strong>回调（仅调用一次，不并行多工具），其余阶段仍为占位。
+     */
+    public static List<String> runStubStages(EvalChatRequest request, Runnable onToolStage) {
         List<String> stageOrder = new ArrayList<>(FIXED_ORDER.length);
+        Runnable toolHook = onToolStage != null ? onToolStage : () -> {};
         for (EvalAgentStage stage : FIXED_ORDER) {
-            runStubStage(stage, request);
+            if (stage == EvalAgentStage.TOOL) {
+                toolHook.run();
+            } else {
+                runStubStage(stage, request);
+            }
             stageOrder.add(stage.name());
         }
         return Collections.unmodifiableList(stageOrder);
@@ -52,7 +64,7 @@ public final class EvalLinearAgentPipeline {
         switch (stage) {
             case PLAN -> { /* 后续：产出 Plan JSON + PlanParser */ }
             case RETRIEVE -> { /* 后续：向量检索 / hits */ }
-            case TOOL -> { /* 后续：串行工具调用 + 超时 */ }
+            case TOOL -> { /* Day6：实际工具逻辑由 {@link #runStubStages(EvalChatRequest, Runnable)} 的回调注入 */ }
             case WRITE -> { /* 后续：基于证据生成 answer 草稿 */ }
             case GUARD -> { /* 后续：低置信 / 引用门控 */ }
         }

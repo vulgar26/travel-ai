@@ -4,7 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.travel.ai.dto.SimpleMsg;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
@@ -18,9 +19,10 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-@Slf4j
 @Component
 public class RedisChatMemory implements ChatMemory {
+
+    private static final Logger log = LoggerFactory.getLogger(RedisChatMemory.class);
     private static final String KEY_PREFIX = "travel:chat:memory:";
     private static final int MAX_MESSAGES = 20;
     private static final long EXPIRE_DAYS = 1;
