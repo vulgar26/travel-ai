@@ -3,6 +3,7 @@ package com.travel.ai.eval;
 import com.travel.ai.eval.dto.EvalChatRequest;
 import com.travel.ai.eval.dto.EvalChatResponse;
 import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -97,10 +98,13 @@ public class EvalChatController {
      */
     // 显式声明 UTF-8，避免部分客户端（如 PowerShell Invoke-WebRequest）按默认编码解读导致中文乱码。
     @PostMapping(value = "/chat", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE + ";charset=UTF-8")
-    public EvalChatResponse chat(@RequestBody EvalChatRequest request) {
+    public EvalChatResponse chat(
+            @RequestBody EvalChatRequest request,
+            @RequestHeader(value = "X-Eval-Membership-Top-N", required = false) Integer xEvalMembershipTopN
+    ) {
         long startMs = System.currentTimeMillis();
         // 先走同一套 meta/capabilities 拼装，保证契约字段始终齐全；空 query 仅覆盖 answer/behavior。
-        EvalChatResponse body = evalChatService.buildStubResponse(request);
+        EvalChatResponse body = evalChatService.buildStubResponse(request, xEvalMembershipTopN);
         if (request.getQuery() == null || request.getQuery().isBlank()) {
             body.setAnswer("请求体缺少非空字段 query。");
             body.setBehavior("clarify");

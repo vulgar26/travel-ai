@@ -29,6 +29,20 @@ public class EvalChatResponse {
     /** 如 {@code PARSE_ERROR}；仅在有归因时返回。 */
     private String errorCode;
 
+    /**
+     * 引用证据（服务端生成）：{@code {id,title,snippet,score?}}。
+     * <p>
+     * 在 {@code requires_citations=true} 的 case 上，eval 会强制要求该字段非空（规则见 eval 侧）。
+     */
+    private java.util.List<EvalChatSource> sources;
+
+    /**
+     * 根级候选 hits（membership 校验用；至少含 {@code id}）。
+     * <p>
+     * P0+ 推荐对齐：只输出前 N（由 eval 下发的 top_n 决定），且 {@code sources[*].id} 必须为其子集。
+     */
+    private java.util.List<EvalChatRetrievalHit> retrievalHits;
+
     /** 工具归因（{@code used} / {@code outcome}）；未走评测工具场景时不返回。 */
     private EvalChatResultTool tool;
 
@@ -78,6 +92,22 @@ public class EvalChatResponse {
 
     public void setErrorCode(String errorCode) {
         this.errorCode = errorCode;
+    }
+
+    public java.util.List<EvalChatSource> getSources() {
+        return sources;
+    }
+
+    public void setSources(java.util.List<EvalChatSource> sources) {
+        this.sources = sources;
+    }
+
+    public java.util.List<EvalChatRetrievalHit> getRetrievalHits() {
+        return retrievalHits;
+    }
+
+    public void setRetrievalHits(java.util.List<EvalChatRetrievalHit> retrievalHits) {
+        this.retrievalHits = retrievalHits;
     }
 
     public EvalChatResultTool getTool() {
