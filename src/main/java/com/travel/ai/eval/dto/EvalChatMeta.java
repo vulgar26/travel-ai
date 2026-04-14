@@ -68,6 +68,13 @@ public class EvalChatMeta {
     private List<String> reasons;
 
     /**
+     * 仅在 SafetyGate 规则短路时写入，用于报表分桶与归因。
+     * <p>
+     * 约束：非短路路径必须不返回该字段（避免污染统计口径）。
+     */
+    private String evalSafetyRuleId;
+
+    /**
      * 检索命中条数（评测 stub）；空命中场景为 0；未参与门控时不返回。
      */
     private Integer retrieveHitCount;
@@ -166,6 +173,14 @@ public class EvalChatMeta {
 
     public void setReasons(List<String> reasons) {
         this.reasons = reasons;
+    }
+
+    public String getEvalSafetyRuleId() {
+        return evalSafetyRuleId;
+    }
+
+    public void setEvalSafetyRuleId(String evalSafetyRuleId) {
+        this.evalSafetyRuleId = evalSafetyRuleId;
     }
 
     public Integer getRetrieveHitCount() {

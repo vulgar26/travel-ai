@@ -13,6 +13,7 @@ import java.util.Locale;
 public final class EvalRagGateScenarios {
 
     public static final String ERROR_CODE_RETRIEVE_EMPTY = "RETRIEVE_EMPTY";
+    public static final String ERROR_CODE_RETRIEVE_LOW_CONFIDENCE = "RETRIEVE_LOW_CONFIDENCE";
 
     /** rag/empty：零命中 */
     public static final List<String> REASONS_EMPTY_HITS = List.of(
@@ -26,6 +27,13 @@ public final class EvalRagGateScenarios {
             "p0_low_confidence_without_score_threshold",
             "heuristic_low_confidence_stub",
             "dataset_tag:rag/low_conf"
+    );
+
+    /** 业务侧低置信：短 query / 指代不明 等 */
+    public static final List<String> REASONS_LOW_CONFIDENCE_BUSINESS = List.of(
+            "heuristic_low_confidence_business",
+            "clarify_missing_or_ambiguous_slots",
+            "p0_score_threshold_gate_disabled"
     );
 
     private EvalRagGateScenarios() {

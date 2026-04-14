@@ -11,8 +11,18 @@ import com.fasterxml.jackson.databind.annotation.JsonNaming;
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
 public class EvalChatResultTool {
 
+    /**
+     * 本 case 是否<strong>要求</strong>使用工具（由业务侧根据策略/题面/能力决定）。
+     * <p>
+     * eval 判定 {@code expected_behavior=tool} 时会检查：{@code required=true && used=true && succeeded=true}。
+     */
+    private Boolean required;
+
     /** 本请求是否实际进入工具调用并成功发起（stub 也算一次调用）。 */
     private boolean used;
+
+    /** 工具是否成功（与 {@code outcome=ok} 语义对齐）。 */
+    private Boolean succeeded;
 
     /** 工具标识（评测 stub 固定名即可）。 */
     private String name;
@@ -24,8 +34,24 @@ public class EvalChatResultTool {
         return used;
     }
 
+    public Boolean getRequired() {
+        return required;
+    }
+
+    public void setRequired(Boolean required) {
+        this.required = required;
+    }
+
     public void setUsed(boolean used) {
         this.used = used;
+    }
+
+    public Boolean getSucceeded() {
+        return succeeded;
+    }
+
+    public void setSucceeded(Boolean succeeded) {
+        this.succeeded = succeeded;
     }
 
     public String getName() {

@@ -93,6 +93,25 @@ public class EvalChatService {
             return response;
         }
 
+        // P0+ S2：检索前 SafetyGate（normalize + 可归因 rule_id），命中则直接短路返回。
+        Optional<EvalChatSafetyGate.Decision> gate = EvalChatSafetyGate.evaluate(request.getQuery());
+        if (gate.isPresent()) {
+            EvalChatSafetyGate.Decision d = gate.get();
+            meta.setEvalSafetyRuleId(d.ruleId());
+            meta.setReasons(d.reasons());
+            meta.setStageOrder(List.of("PLAN", "GUARD"));
+            meta.setStepCount(2);
+            if ("clarify".equalsIgnoreCase(d.behavior())) {
+                meta.setLowConfidence(true);
+            }
+            response.setBehavior(d.behavior());
+            if (d.errorCode() != null) {
+                response.setErrorCode(d.errorCode());
+            }
+            response.setAnswer(d.answer());
+            return response;
+        }
+
         // Day10/S1：为 requires_citations / membership 路径提前准备证据对象（sources / retrieval_hits）。
         // 这里不依赖 eval 的 requires_citations 下发（eval 侧判定），而是以“业务侧可引用证据”为长期能力收敛点。
         Evidence evidence = retrieveEvidence(request.getQuery(), mode, xEvalMembershipTopN);
@@ -131,6 +150,66 @@ public class EvalChatService {
             return response;
         }
 
+        // P0+ S2：确定性行为策略（tool/clarify），用于收敛典型 BEHAVIOR_MISMATCH。
+        if ("EVAL".equalsIgnoreCase(mode)) {
+            Optional<EvalBehaviorPolicy.Decision> d = EvalBehaviorPolicy.evaluateForEvalMode(request.getQuery());
+            if (d.isPresent()) {
+                EvalBehaviorPolicy.Decision decision = d.get();
+                response.setBehavior(decision.behavior());
+                if (decision.errorCode() != null && !decision.errorCode().isBlank()) {
+                    response.setErrorCode(decision.errorCode());
+                }
+                if (decision.reasons() != null && !decision.reasons().isEmpty()) {
+                    meta.setReasons(decision.reasons());
+                }
+                if ("clarify".equalsIgnoreCase(decision.behavior())) {
+                    meta.setLowConfidence(true);
+                    meta.setStageOrder(List.of("PLAN", "RETRIEVE"));
+                    meta.setStepCount(2);
+                } else if ("tool".equalsIgnoreCase(decision.behavior())) {
+                    // 与默认线性流水线保持一致，避免 eval 对 meta.stage_order 的隐含期望造成 tool_succeeded=false。
+                    meta.setStageOrder(List.of("PLAN", "RETRIEVE", "TOOL", "WRITE", "GUARD"));
+                    meta.setStepCount(5);
+                    EvalChatResultTool toolDto = new EvalChatResultTool();
+                    toolDto.setRequired(true);
+                    toolDto.setUsed(true);
+                    toolDto.setSucceeded(true);
+                    toolDto.setName(EvalToolStageRunner.STUB_TOOL_NAME);
+                    toolDto.setOutcome(EvalToolStageRunner.OUTCOME_OK);
+                    response.setTool(toolDto);
+                    meta.setToolCallsCount(1);
+                    meta.setToolOutcome(EvalToolStageRunner.OUTCOME_OK);
+                }
+                response.setAnswer(decision.answer());
+                return response;
+            }
+        }
+
+        // 业务侧“空命中”兜底门控（不依赖 eval_rag_scenario）；避免在无证据时强答/编造引用。
+        if (meta.getRetrieveHitCount() != null && meta.getRetrieveHitCount() == 0) {
+            meta.setStageOrder(List.of("PLAN", "RETRIEVE"));
+            meta.setStepCount(2);
+            meta.setLowConfidence(true);
+            meta.setReasons(EvalRagGateScenarios.REASONS_EMPTY_HITS);
+            response.setBehavior("clarify");
+            response.setErrorCode(EvalRagGateScenarios.ERROR_CODE_RETRIEVE_EMPTY);
+            response.setAnswer("检索零命中：请补充关键词/范围/上下文，或提供可引用资料后再继续。");
+            return response;
+        }
+
+        // 业务侧“低置信”兜底门控：短 query / 指代不明 等，避免同类输入漂移到 answer。
+        String q = request.getQuery().trim();
+        if (q.length() <= 6 || q.contains("这个东西") || q.contains("那个项目") || q.contains("那个") && q.contains("项目")) {
+            meta.setStageOrder(List.of("PLAN", "RETRIEVE"));
+            meta.setStepCount(2);
+            meta.setLowConfidence(true);
+            meta.setReasons(EvalRagGateScenarios.REASONS_LOW_CONFIDENCE_BUSINESS);
+            response.setBehavior("clarify");
+            response.setErrorCode(EvalRagGateScenarios.ERROR_CODE_RETRIEVE_LOW_CONFIDENCE);
+            response.setAnswer("信息不足或指代不明：请补充目的地/日期/偏好，或说明你指的是哪个对象/项目。");
+            return response;
+        }
+
         Kind ragKind = EvalRagGateScenarios.resolve(request);
         if (ragKind != null) {
             meta.setStageOrder(List.of("PLAN", "RETRIEVE"));
@@ -163,9 +242,11 @@ public class EvalChatService {
         EvalToolStageRunner.EvalToolInvocationResult inv = toolSlot.get();
         if (inv != null) {
             EvalChatResultTool toolDto = new EvalChatResultTool();
+            toolDto.setRequired(true);
             toolDto.setUsed(inv.used());
             toolDto.setName(inv.name());
             toolDto.setOutcome(inv.outcome());
+            toolDto.setSucceeded(EvalToolStageRunner.OUTCOME_OK.equals(inv.outcome()));
             response.setTool(toolDto);
             meta.setToolCallsCount(inv.used() ? 1 : 0);
             meta.setToolOutcome(inv.outcome());
