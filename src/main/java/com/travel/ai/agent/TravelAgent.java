@@ -9,6 +9,8 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
@@ -36,7 +38,7 @@ import static com.travel.ai.tools.ToolObservability.log;
  * {@code PLAN → RETRIEVE → TOOL → GUARD → WRITE}，由 {@link TravelAgent#runLinearStages(MainAgentTurnContext)}
  * 唯一串行调用；禁止用「阶段名 → 处理器」的 Map 或动态跳转驱动执行（避免退化成 DAG/状态机）。
  * <p>
- * 大白话：用户一问进来，服务端按固定几步处理——先占位计划、再查资料、再按需调工具、再过一道占位门控、最后才调大模型流式写回答。
+ * 大白话：用户一问进来，服务端按固定几步处理——先占位计划、再查资料、再按需调工具、再过门控（默认「知识库零命中则澄清不调 LLM」）、最后才调大模型流式写回答。
  * <p>
  * 检索合并阶段使用 {@link #mergeAndDedupeDocuments(List, int)}：按文档 id（无 id 时退化为正文 hash）
  * 显式去重，避免依赖 {@link Document#equals} 实现细节（UPGRADE P2-2）。
@@ -46,10 +48,14 @@ public class TravelAgent {
 
     private static final Logger log = LoggerFactory.getLogger(TravelAgent.class);
 
+    /** 与 eval / travel-ai-upgrade 归因一致，便于日志与客户端解析。 */
+    private static final String ERROR_CODE_RETRIEVE_EMPTY = "RETRIEVE_EMPTY";
+
     /** 合并后进入 prompt 的文档条数上限 */
     private static final int MAX_CONTEXT_DOCS = 5;
 
     private final ChatClient chatClient;
+    private final ChatMemory chatMemory;
     private final VectorStore vectorStore;
     private final QueryRewriter queryRewriter;
     private final WeatherTool weatherTool;
@@ -65,6 +71,13 @@ public class TravelAgent {
     /** 长连接空闲时定期发送 SSE 注释行（comment），避免网关/代理因无数据而断开 */
     @Value("${app.sse.heartbeat-seconds:15}")
     private int sseHeartbeatSeconds;
+
+    /**
+     * 检索零命中时策略：{@code clarify}（默认）= 不调 LLM 做开放式行程生成，仅返回澄清文案；
+     * {@code allow_answer} = 仍走 LLM（仅用于对照/调试，易与「无引用强答」冲突）。
+     */
+    @Value("${app.rag.empty-hits-behavior:clarify}")
+    private String emptyHitsBehavior;
 
     private static final String SYSTEM_PROMPT = """
             你是一个专业的出行规划助手。
@@ -83,6 +96,7 @@ public class TravelAgent {
                        WeatherTool weatherTool,
                        com.travel.ai.tools.ToolCircuitBreaker toolCircuitBreaker,
                        com.travel.ai.tools.ToolRateLimiter toolRateLimiter) {
+        this.chatMemory = chatMemory;
         this.vectorStore = vectorStore;
         this.queryRewriter = queryRewriter;
         this.weatherTool = weatherTool;
@@ -116,7 +130,12 @@ public class TravelAgent {
         MainAgentTurnContext ctx = new MainAgentTurnContext(conversationId, userMessage, requestId);
         runLinearStages(ctx);
 
-        log.info("最终 prompt 字符数={}", ctx.finalPromptForLlm.length());
+        if (ctx.skipLlmForEmptyHits) {
+            log.info("SKIP_LLM empty_hits_gate error_code={} would_prompt_chars={} requestId={}",
+                    ERROR_CODE_RETRIEVE_EMPTY, ctx.finalPromptForLlm.length(), requestId);
+        } else {
+            log.info("最终 prompt 字符数={}", ctx.finalPromptForLlm.length());
+        }
 
         AtomicLong llmStartNs = new AtomicLong();
         AtomicBoolean firstLlmToken = new AtomicBoolean(true);
@@ -282,11 +301,32 @@ public class TravelAgent {
     }
 
     /**
-     * GUARD：里程碑 A 为占位（no-op）；后续在此做引用/置信/注入门控（post-process 或 pre-emit 视设计而定）。
+     * GUARD：检索零命中门控（P0 默认 clarify）；若 TOOL 阶段已注入非空工具数据块（如天气），则不拦截，避免误伤「仅问天气」类请求。
      */
     private void stageGuard(MainAgentTurnContext ctx) {
         long t0 = System.nanoTime();
-        log.info("[stage] GUARD start noop requestId={}", ctx.requestId);
+        log.info("[stage] GUARD start requestId={}", ctx.requestId);
+
+        boolean zeroHits = ctx.docs == null || ctx.docs.isEmpty();
+        boolean noToolObservation = ctx.toolPreface == null || ctx.toolPreface.isBlank();
+        if ("clarify".equalsIgnoreCase(emptyHitsBehavior.trim()) && zeroHits && noToolObservation) {
+            ctx.skipLlmForEmptyHits = true;
+            ctx.emptyHitsClarifyBody = """
+                    检索零命中：请补充关键词/范围/上下文，或提供可引用资料后再继续。
+                    （error_code=%s）
+                    """.formatted(ERROR_CODE_RETRIEVE_EMPTY).trim();
+            log.info("[guard] empty_hits gate=clarify error_code={} requestId={}", ERROR_CODE_RETRIEVE_EMPTY, ctx.requestId);
+        } else {
+            ctx.skipLlmForEmptyHits = false;
+            if (zeroHits && !noToolObservation) {
+                log.info("[guard] empty_hits skipped gate tool_preface_present requestId={}", ctx.requestId);
+            } else if (!zeroHits) {
+                log.debug("[guard] retrieve_hits>0 requestId={}", ctx.requestId);
+            } else if (!"clarify".equalsIgnoreCase(emptyHitsBehavior.trim())) {
+                log.info("[guard] empty_hits_behavior={} no_clarify_gate requestId={}", emptyHitsBehavior, ctx.requestId);
+            }
+        }
+
         logStageBoundary("GUARD", t0, ctx.requestId);
     }
 
@@ -300,6 +340,28 @@ public class TravelAgent {
             AtomicBoolean firstLlmToken
     ) {
         long t0 = System.nanoTime();
+
+        if (ctx.skipLlmForEmptyHits) {
+            log.info("[stage] WRITE start empty_hits_clarify_only requestId={}", ctx.requestId);
+            return Flux.just(ctx.emptyHitsClarifyBody)
+                    .doOnSubscribe(s -> llmStartNs.set(System.nanoTime()))
+                    .doOnNext(chunk -> {
+                        if (firstLlmToken.compareAndSet(true, false)) {
+                            long ttftMs = (System.nanoTime() - llmStartNs.get()) / 1_000_000L;
+                            log.info("[perf] llm_first_token_ms={} requestId={} (clarify_only)", ttftMs, ctx.requestId);
+                        }
+                    })
+                    .doOnComplete(() -> appendTurnToMemory(ctx))
+                    .doFinally(signal -> {
+                        if (llmStartNs.get() != 0L) {
+                            long wallMs = (System.nanoTime() - llmStartNs.get()) / 1_000_000L;
+                            log.info("[perf] llm_stream_wall_ms={} signal={} requestId={}", wallMs, signal, ctx.requestId);
+                        }
+                        logStageBoundary("WRITE", t0, ctx.requestId);
+                    })
+                    .share();
+        }
+
         log.info("[stage] WRITE start requestId={}", ctx.requestId);
 
         Flux<String> flux = chatClient.prompt(ctx.finalPromptForLlm)
@@ -331,6 +393,20 @@ public class TravelAgent {
     }
 
     /**
+     * 零命中门控路径未经过 ChatClient，需自行写入本轮 user/assistant，与 {@link MessageChatMemoryAdvisor} 行为对齐。
+     */
+    private void appendTurnToMemory(MainAgentTurnContext ctx) {
+        try {
+            chatMemory.add(ctx.conversationId, List.of(
+                    new UserMessage(ctx.userMessage),
+                    new AssistantMessage(ctx.emptyHitsClarifyBody)
+            ));
+        } catch (Exception e) {
+            log.warn("empty_hits gate: chatMemory.add failed requestId={} error={}", ctx.requestId, e.toString());
+        }
+    }
+
+    /**
      * 承载单轮对话在各阶段之间传递的状态（mutable context object）。
      * 术语：类似「请求作用域 DTO / turn state」，仅本类各 {@code stage*} 方法写入。
      */
@@ -353,11 +429,16 @@ public class TravelAgent {
         /** SSE 首包「引用片段」正文。 */
         String citationBlock;
 
+        /** 检索零命中且策略为 clarify 时跳过 LLM，仅下发固定澄清。 */
+        boolean skipLlmForEmptyHits;
+        String emptyHitsClarifyBody;
+
         MainAgentTurnContext(String conversationId, String userMessage, String requestId) {
             this.conversationId = conversationId;
             this.userMessage = userMessage;
             this.requestId = requestId;
             this.toolPreface = "";
+            this.skipLlmForEmptyHits = false;
         }
     }
 

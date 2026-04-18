@@ -61,7 +61,8 @@
 - **可观测**：`meta.stage_order` / `step_count` / `replan_count`；Day5 plan parse / repair once；Day6 工具 stub；Day7 RAG 门控 stub；Day9 输入侧高置信安全短路。  
 - **E7 hashed membership**：`RetrievalMembershipHasher` + `EvalMembershipHttpContext`；响应 `meta.retrieval_hit_id_hashes[]` 及 `retrieval_hit_id_hash_alg` / `retrieval_hit_id_hash_key_derivation` / `retrieval_candidate_*` / `canonical_hit_id_scheme`（与 `D:\Projects\Vagent\plans\eval-upgrade.md` 一致）。  
 - **回归**：`EvalChatControllerTest`（含 membership 单测）、`RetrievalMembershipHasherTest`。
-- **主线 P0-1 编排骨架（里程碑 A，2026-04-18）**：`TravelAgent` 内 `runLinearStages` 固定串行 `PLAN → RETRIEVE → TOOL → GUARD → WRITE`（`MainAgentTurnContext` 承载阶段产物）；`PLAN` / `GUARD` 当前为占位；受控天气工具仍在 `TOOL`。**验收留痕（手工）**：`POST /auth/login` 取 JWT 后 `GET /travel/chat/{conversationId}?query=...`；日志中同一 `requestId` 下 `[stage]` 顺序完整；无「天气」意图时 `TOOL done` 可为 0ms；无知识命中时「最终 prompt 字符数」与用户 query 字面长度一致；SSE 仍为引用块首包 + 正文流 + `comment` 心跳。**说明**：`WRITE` 阶段 `doOnNext` 等跑在 Reactor `boundedElastic` 上时，日志 pattern 里 `%X{requestId}` 可能为空（MDC 未跨线程传播），但 `[perf]` 行内仍显式打印 `requestId=`，不挡本里程碑验收。
+- **主线 P0-1 编排骨架（里程碑 A，2026-04-18）**：`TravelAgent` 内 `runLinearStages` 固定串行 `PLAN → RETRIEVE → TOOL → GUARD → WRITE`（`MainAgentTurnContext` 承载阶段产物）；`PLAN` 仍为占位；受控天气工具仍在 `TOOL`；`GUARD` 已接零命中门控（见下一条）。**验收留痕（手工）**：`POST /auth/login` 取 JWT 后 `GET /travel/chat/{conversationId}?query=...`；日志中同一 `requestId` 下 `[stage]` 顺序完整；无「天气」意图时 `TOOL done` 可为 0ms；无知识命中时「最终 prompt 字符数」与用户 query 字面长度一致；SSE 仍为引用块首包 + 正文流 + `comment` 心跳。**说明**：`WRITE` 阶段 `doOnNext` 等跑在 Reactor `boundedElastic` 上时，日志 pattern 里 `%X{requestId}` 可能为空（MDC 未跨线程传播），但 `[perf]` 行内仍显式打印 `requestId=`，不挡本里程碑验收。
+- **主线零命中门控（里程碑 B-1，2026-04-18）**：`app.rag.empty-hits-behavior` 默认 `clarify`；`GUARD` 在 `docs.isEmpty()` 且 `toolPreface` 为空时置 `skipLlmForEmptyHits`，`WRITE` 下发固定澄清（`error_code=RETRIEVE_EMPTY` 文案）并 `ChatMemory.add` 本轮 user/assistant；若 `TOOL` 已注入天气等数据块则**不门控**，避免「只问天气」被误拦。
 
 ---
 

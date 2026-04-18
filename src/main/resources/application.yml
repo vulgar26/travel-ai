@@ -95,6 +95,8 @@ app:
     rewrite:
       # QueryRewriter 单行最大长度，防止异常输出撑爆 embedding 请求
       max-line-length: 256
+    # 向量检索零命中时主线行为（对齐 travel-ai-upgrade P0 默认）：clarify=不调 LLM 编造行程，仅返回澄清话术
+    empty-hits-behavior: clarify
   eval:
     # 评测 TOOL 阶段 stub 超时阈值（毫秒）；timeout 场景下工作线程睡眠长于该值以触发 TOOL_TIMEOUT
     tool-timeout-ms: 100
