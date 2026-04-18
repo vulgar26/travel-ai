@@ -27,7 +27,7 @@ public class EvalChatResultTool {
     /** 工具标识（评测 stub 固定名即可）。 */
     private String name;
 
-    /** {@code ok|timeout|error}，与 {@code meta.tool_outcome} 对齐。 */
+    /** {@code ok|timeout|error|disabled_by_circuit_breaker|rate_limited|…}，与 {@code meta.tool_outcome} 对齐。 */
     private String outcome;
 
     public boolean isUsed() {

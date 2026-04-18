@@ -3,6 +3,7 @@ package com.travel.ai.eval;
 import com.jayway.jsonpath.Configuration;
 import com.jayway.jsonpath.JsonPath;
 import com.jayway.jsonpath.Option;
+import com.travel.ai.agent.QueryRewriter;
 import com.travel.ai.eval.dto.EvalChatMeta;
 import com.travel.ai.eval.planrepair.EvalPlanParseCoordinator;
 import com.travel.ai.plan.PlanParser;
@@ -12,9 +13,12 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.http.HttpHeaders;
+import org.springframework.ai.document.Document;
+import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
@@ -22,7 +26,13 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultMatcher;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.when;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -61,9 +71,47 @@ class EvalChatControllerTest {
     @Autowired
     private MutablePlanRepairModelPort mutablePlanRepairModelPort;
 
+    @MockBean
+    private VectorStore vectorStore;
+
+    @MockBean
+    private QueryRewriter queryRewriter;
+
     @BeforeEach
     void resetRepairPort() {
         mutablePlanRepairModelPort.reset();
+        lenient().when(vectorStore.similaritySearch(any())).thenReturn(List.of());
+        lenient().when(queryRewriter.rewrite(any())).thenReturn(List.of("stub-rewrite"));
+    }
+
+    @Test
+    void evalChatIncludesRetrievalHitIdHashesWhenMembershipHeadersPresent() throws Exception {
+        when(vectorStore.similaritySearch(any())).thenReturn(List.of(
+                new Document("hit-abc-1", "snippet body", Map.of("user_id", "eval", "source_name", "KB"))
+        ));
+        String token = "x-eval-token-unit-test-32bytes!!!";
+        byte[] kCase = RetrievalMembershipHasher.deriveKCase(token, "travel-ai", "ds_fb221067b3454e7e875d7d5ae565ea9b", "p0_v0_requires_citations_001");
+        String expectedHash = RetrievalMembershipHasher.hitIdHashHex(kCase, "hit-abc-1");
+
+        String body = """
+                {"query":"请帮我规划上海多日游的参考信息","mode":"EVAL"}
+                """;
+        mockMvc.perform(post("/api/v1/eval/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("X-Eval-Token", token)
+                        .header("X-Eval-Target-Id", "travel-ai")
+                        .header("X-Eval-Dataset-Id", "ds_fb221067b3454e7e875d7d5ae565ea9b")
+                        .header("X-Eval-Case-Id", "p0_v0_requires_citations_001")
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.retrieval_hits[0].id").value("hit-abc-1"))
+                .andExpect(jsonPath("$.meta.retrieval_hit_id_hashes.length()").value(1))
+                .andExpect(jsonPath("$.meta.retrieval_hit_id_hashes[0]").value(expectedHash))
+                .andExpect(jsonPath("$.meta.retrieval_hit_id_hash_alg").value("HMAC-SHA256"))
+                .andExpect(jsonPath("$.meta.retrieval_hit_id_hash_key_derivation").value("x-eval-token/v1"))
+                .andExpect(jsonPath("$.meta.retrieval_candidate_limit_n").value(8))
+                .andExpect(jsonPath("$.meta.retrieval_candidate_total").value(1))
+                .andExpect(jsonPath("$.meta.canonical_hit_id_scheme").value("kb_chunk_id"));
     }
 
     @Test
@@ -197,6 +245,7 @@ class EvalChatControllerTest {
                 .andExpect(jsonPath("$.tool.outcome").value(EvalToolStageRunner.OUTCOME_OK))
                 .andExpect(jsonPath("$.meta.tool_calls_count").value(1))
                 .andExpect(jsonPath("$.meta.tool_outcome").value(EvalToolStageRunner.OUTCOME_OK))
+                .andExpect(jsonPath("$.meta.tool_latency_ms").isNumber())
                 .andExpect(jsonPathAbsentOrNull("$.error_code"))
                 .andExpect(jsonPath("$.meta.stage_order[2]").value("TOOL"));
     }
@@ -218,7 +267,8 @@ class EvalChatControllerTest {
                 .andExpect(jsonPath("$.tool.succeeded").value(false))
                 .andExpect(jsonPath("$.tool.outcome").value(EvalToolStageRunner.OUTCOME_TIMEOUT))
                 .andExpect(jsonPath("$.meta.tool_calls_count").value(1))
-                .andExpect(jsonPath("$.meta.tool_outcome").value(EvalToolStageRunner.OUTCOME_TIMEOUT));
+                .andExpect(jsonPath("$.meta.tool_outcome").value(EvalToolStageRunner.OUTCOME_TIMEOUT))
+                .andExpect(jsonPath("$.meta.tool_latency_ms").isNumber());
     }
 
     /**
@@ -238,7 +288,57 @@ class EvalChatControllerTest {
                 .andExpect(jsonPath("$.tool.succeeded").value(false))
                 .andExpect(jsonPath("$.tool.outcome").value(EvalToolStageRunner.OUTCOME_ERROR))
                 .andExpect(jsonPath("$.meta.tool_calls_count").value(1))
-                .andExpect(jsonPath("$.meta.tool_outcome").value(EvalToolStageRunner.OUTCOME_ERROR));
+                .andExpect(jsonPath("$.meta.tool_outcome").value(EvalToolStageRunner.OUTCOME_ERROR))
+                .andExpect(jsonPath("$.meta.tool_latency_ms").isNumber());
+    }
+
+    @Test
+    void evalToolScenario_circuitBreaker_setsMetaFlagAndErrorCode() throws Exception {
+        String body = "{\"query\":\"Day6评测工具熔断stub\",\"mode\":\"AGENT\",\"eval_tool_scenario\":\"circuit_breaker\"}";
+        mockMvc.perform(post("/api/v1/eval/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.behavior").value("answer"))
+                .andExpect(jsonPath("$.error_code").value(EvalToolStageRunner.ERROR_CODE_TOOL_DISABLED_BY_CIRCUIT_BREAKER))
+                .andExpect(jsonPath("$.tool.used").value(false))
+                .andExpect(jsonPath("$.tool.succeeded").value(false))
+                .andExpect(jsonPath("$.tool.outcome").value(EvalToolStageRunner.OUTCOME_DISABLED_BY_CIRCUIT_BREAKER))
+                .andExpect(jsonPath("$.meta.tool_calls_count").value(0))
+                .andExpect(jsonPath("$.meta.tool_disabled_by_circuit_breaker").value(true))
+                .andExpect(jsonPathAbsentOrNull("$.meta.tool_rate_limited"))
+                .andExpect(jsonPathAbsentOrNull("$.meta.tool_output_truncated"));
+    }
+
+    @Test
+    void evalToolScenario_rateLimited_setsMetaFlagAndErrorCode() throws Exception {
+        String body = "{\"query\":\"Day6评测工具限流stub\",\"mode\":\"AGENT\",\"eval_tool_scenario\":\"rate_limited\"}";
+        mockMvc.perform(post("/api/v1/eval/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.behavior").value("answer"))
+                .andExpect(jsonPath("$.error_code").value(EvalToolStageRunner.ERROR_CODE_RATE_LIMITED))
+                .andExpect(jsonPath("$.tool.used").value(false))
+                .andExpect(jsonPath("$.tool.outcome").value(EvalToolStageRunner.OUTCOME_RATE_LIMITED))
+                .andExpect(jsonPath("$.meta.tool_rate_limited").value(true))
+                .andExpect(jsonPathAbsentOrNull("$.meta.tool_disabled_by_circuit_breaker"))
+                .andExpect(jsonPathAbsentOrNull("$.meta.tool_output_truncated"));
+    }
+
+    @Test
+    void evalToolScenario_successTruncated_setsMetaTruncated() throws Exception {
+        String body = "{\"query\":\"Day6评测工具截断stub\",\"mode\":\"AGENT\",\"eval_tool_scenario\":\"success_truncated\"}";
+        mockMvc.perform(post("/api/v1/eval/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.behavior").value("tool"))
+                .andExpect(jsonPath("$.tool.succeeded").value(true))
+                .andExpect(jsonPath("$.tool.outcome").value(EvalToolStageRunner.OUTCOME_OK))
+                .andExpect(jsonPath("$.meta.tool_output_truncated").value(true))
+                .andExpect(jsonPathAbsentOrNull("$.meta.tool_disabled_by_circuit_breaker"))
+                .andExpect(jsonPathAbsentOrNull("$.meta.tool_rate_limited"));
     }
 
     /**

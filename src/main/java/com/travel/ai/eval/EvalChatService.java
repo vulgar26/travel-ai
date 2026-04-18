@@ -1,6 +1,16 @@
 package com.travel.ai.eval;
 
-import com.travel.ai.eval.dto.*;
+import com.travel.ai.eval.dto.EvalCapabilities;
+import com.travel.ai.eval.dto.EvalChatMeta;
+import com.travel.ai.eval.dto.EvalChatRequest;
+import com.travel.ai.eval.dto.EvalChatResponse;
+import com.travel.ai.eval.dto.EvalChatResultTool;
+import com.travel.ai.eval.dto.EvalChatRetrievalHit;
+import com.travel.ai.eval.dto.EvalChatSource;
+import com.travel.ai.eval.dto.EvalGuardrailsCapability;
+import com.travel.ai.eval.dto.EvalRetrievalCapability;
+import com.travel.ai.eval.dto.EvalStreamingCapability;
+import com.travel.ai.eval.dto.EvalToolsCapability;
 import com.travel.ai.eval.planrepair.EvalPlanParseCoordinator;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -28,6 +38,9 @@ import static com.travel.ai.eval.EvalRagGateScenarios.Kind;
  * Day6 起在 TOOL 阶段串行执行 {@link EvalToolStageRunner}（超时/失败降级 + {@code tool} / {@code meta.tool_*} / {@code error_code}）。
  * Day7 起支持 {@link EvalRagGateScenarios}：空命中/低置信门控（P0 不启用 score 阈值），{@code meta.low_confidence} + {@code reasons[]}。
  * Day9 起在 plan 解析成功后执行 {@link EvalQuerySafetyPolicy}：对抗/敏感句式稳定 {@code deny} 或 {@code clarify}，归因见 {@link EvalSafetyErrorCodes}。
+ * <p>
+ * eval-upgrade.md E7：在 {@link EvalMembershipHttpContext} 完整且存在 {@code retrieval_hits} 时写入
+ * {@code meta.retrieval_hit_id_hashes} 及配套口径字段。
  */
 @Service
 public class EvalChatService {
@@ -56,13 +69,24 @@ public class EvalChatService {
      * {@code step_count=0}），且不执行 plan 解析；由 Controller 将 {@code behavior} 改为 {@code clarify}。
      */
     public EvalChatResponse buildStubResponse(EvalChatRequest request) {
-        return buildStubResponse(request, null);
+        return buildStubResponse(request, null, EvalMembershipHttpContext.empty());
     }
 
     /**
      * @param xEvalMembershipTopN eval 下发的候选截断上限（见 P0+ §16）；为空则用服务端默认值。
      */
     public EvalChatResponse buildStubResponse(EvalChatRequest request, Integer xEvalMembershipTopN) {
+        return buildStubResponse(request, xEvalMembershipTopN, EvalMembershipHttpContext.empty());
+    }
+
+    /**
+     * @param membershipCtx eval 请求头派生的 membership 上下文；不全则跳过 hashed membership 字段。
+     */
+    public EvalChatResponse buildStubResponse(
+            EvalChatRequest request,
+            Integer xEvalMembershipTopN,
+            EvalMembershipHttpContext membershipCtx
+    ) {
         String mode = request.getMode();
         if (mode == null || mode.isBlank()) {
             mode = "EVAL";
@@ -133,7 +157,7 @@ public class EvalChatService {
             response.setBehavior("clarify");
             response.setErrorCode("PARSE_ERROR");
             response.setAnswer("Plan JSON 解析失败（已尝试一次修复仍无效）。请提供符合附录 E 的 plan。");
-            return response;
+            return finalizeResponse(response, membershipCtx, evidence);
         }
 
         Optional<EvalQuerySafetyPolicy.Decision> safety = EvalQuerySafetyPolicy.evaluate(request.getQuery());
@@ -147,7 +171,7 @@ public class EvalChatService {
                 response.setErrorCode(d.errorCode());
             }
             response.setAnswer(d.answer());
-            return response;
+            return finalizeResponse(response, membershipCtx, evidence);
         }
 
         // P0+ S2：确定性行为策略（tool/clarify），用于收敛典型 BEHAVIOR_MISMATCH。
@@ -181,7 +205,7 @@ public class EvalChatService {
                     meta.setToolOutcome(EvalToolStageRunner.OUTCOME_OK);
                 }
                 response.setAnswer(decision.answer());
-                return response;
+                return finalizeResponse(response, membershipCtx, evidence);
             }
         }
 
@@ -194,7 +218,7 @@ public class EvalChatService {
             response.setBehavior("clarify");
             response.setErrorCode(EvalRagGateScenarios.ERROR_CODE_RETRIEVE_EMPTY);
             response.setAnswer("检索零命中：请补充关键词/范围/上下文，或提供可引用资料后再继续。");
-            return response;
+            return finalizeResponse(response, membershipCtx, evidence);
         }
 
         // 业务侧“低置信”兜底门控：短 query / 指代不明 等，避免同类输入漂移到 answer。
@@ -207,7 +231,7 @@ public class EvalChatService {
             response.setBehavior("clarify");
             response.setErrorCode(EvalRagGateScenarios.ERROR_CODE_RETRIEVE_LOW_CONFIDENCE);
             response.setAnswer("信息不足或指代不明：请补充目的地/日期/偏好，或说明你指的是哪个对象/项目。");
-            return response;
+            return finalizeResponse(response, membershipCtx, evidence);
         }
 
         Kind ragKind = EvalRagGateScenarios.resolve(request);
@@ -226,7 +250,7 @@ public class EvalChatService {
                 response.setAnswer("证据置信不足，已门控为澄清（评测 stub，P0 未启用 score 阈值）。");
             }
             response.setBehavior("clarify");
-            return response;
+            return finalizeResponse(response, membershipCtx, evidence);
         }
 
         AtomicReference<EvalToolStageRunner.EvalToolInvocationResult> toolSlot = new AtomicReference<>();
@@ -250,6 +274,19 @@ public class EvalChatService {
             response.setTool(toolDto);
             meta.setToolCallsCount(inv.used() ? 1 : 0);
             meta.setToolOutcome(inv.outcome());
+            meta.setToolLatencyMs(inv.latencyMs());
+            // meta 上的布尔字段采用“只写 true”的策略：
+            // - 避免输出大量无意义的 false（减少 JSON 噪音）
+            // - 统计上更容易理解：字段出现即表示触发
+            if (Boolean.TRUE.equals(inv.toolDisabledByCircuitBreaker())) {
+                meta.setToolDisabledByCircuitBreaker(true);
+            }
+            if (Boolean.TRUE.equals(inv.toolRateLimited())) {
+                meta.setToolRateLimited(true);
+            }
+            if (Boolean.TRUE.equals(inv.toolOutputTruncated())) {
+                meta.setToolOutputTruncated(true);
+            }
             switch (inv.kind()) {
                 case OK -> {
                     response.setBehavior("tool");
@@ -265,16 +302,78 @@ public class EvalChatService {
                     response.setErrorCode(EvalToolStageRunner.ERROR_CODE_TOOL_ERROR);
                     response.setAnswer("工具调用失败，已降级返回（评测 stub）。");
                 }
+                case CIRCUIT_BREAKER -> {
+                    response.setBehavior("answer");
+                    response.setErrorCode(EvalToolStageRunner.ERROR_CODE_TOOL_DISABLED_BY_CIRCUIT_BREAKER);
+                    response.setAnswer("工具因熔断暂不可用，已降级返回（评测 stub）。");
+                }
+                case RATE_LIMITED -> {
+                    response.setBehavior("answer");
+                    response.setErrorCode(EvalToolStageRunner.ERROR_CODE_RATE_LIMITED);
+                    response.setAnswer("工具触发限流，已降级返回（评测 stub）。");
+                }
             }
-            return response;
+            return finalizeResponse(response, membershipCtx, evidence);
         }
 
         response.setAnswer("Day3：meta 可观测稳定（stage_order / step_count / replan_count=0）；阶段仍为占位执行。");
         response.setBehavior("answer");
+        return finalizeResponse(response, membershipCtx, evidence);
+    }
+
+    private EvalChatResponse finalizeResponse(
+            EvalChatResponse response,
+            EvalMembershipHttpContext membershipCtx,
+            Evidence evidence
+    ) {
+        attachRetrievalMembershipMeta(response.getMeta(), response, membershipCtx, evidence);
         return response;
     }
 
-    private record Evidence(List<EvalChatRetrievalHit> retrievalHits, List<EvalChatSource> sources) {
+    private static void attachRetrievalMembershipMeta(
+            EvalChatMeta meta,
+            EvalChatResponse response,
+            EvalMembershipHttpContext ctx,
+            Evidence evidence
+    ) {
+        if (meta == null || !ctx.completeForHashedMembership()) {
+            return;
+        }
+        List<EvalChatRetrievalHit> hits = response.getRetrievalHits();
+        if (hits == null || hits.isEmpty()) {
+            return;
+        }
+        List<String> ids = new ArrayList<>();
+        for (EvalChatRetrievalHit h : hits) {
+            if (h.getId() != null && !h.getId().isBlank()) {
+                ids.add(h.getId());
+            }
+        }
+        if (ids.isEmpty()) {
+            return;
+        }
+        List<String> hashes = RetrievalMembershipHasher.sortedHitIdHashes(
+                ctx.token(), ctx.targetId(), ctx.datasetId(), ctx.caseId(), ids);
+        if (hashes.isEmpty()) {
+            return;
+        }
+        meta.setRetrievalHitIdHashes(hashes);
+        meta.setRetrievalHitIdHashAlg("HMAC-SHA256");
+        meta.setRetrievalHitIdHashKeyDerivation("x-eval-token/v1");
+        meta.setRetrievalCandidateLimitN(evidence.candidateLimitN());
+        meta.setRetrievalCandidateTotal(evidence.candidateTotal());
+        meta.setCanonicalHitIdScheme("kb_chunk_id");
+    }
+
+    private record Evidence(
+            List<EvalChatRetrievalHit> retrievalHits,
+            List<EvalChatSource> sources,
+            int candidateTotal,
+            int candidateLimitN
+    ) {
+    }
+
+    private record DedupedSlice(List<Document> docs, int totalUnique) {
     }
 
     /**
@@ -284,7 +383,7 @@ public class EvalChatService {
         com.travel.ai.agent.QueryRewriter rewriter = queryRewriter.getIfAvailable();
         VectorStore vs = vectorStore.getIfAvailable();
         if (rewriter == null || vs == null) {
-            return new Evidence(List.of(), List.of());
+            return new Evidence(List.of(), List.of(), 0, 0);
         }
 
         int topN = (xEvalMembershipTopN != null && xEvalMembershipTopN > 0) ? Math.min(50, xEvalMembershipTopN) : 8;
@@ -324,7 +423,9 @@ public class EvalChatService {
                     .build()));
         }
 
-        List<Document> docs = mergeAndDedupeDocuments(flat, topN);
+        DedupedSlice slice = mergeAndDedupeDocuments(flat, topN);
+        List<Document> docs = slice.docs();
+        int candidateTotalUnique = slice.totalUnique();
 
         List<EvalChatRetrievalHit> hits = new ArrayList<>(docs.size());
         List<EvalChatSource> sources = new ArrayList<>(docs.size());
@@ -353,7 +454,12 @@ public class EvalChatService {
 
         // 先使用“sources == 前 N 条 hits”的保守策略，避免引用落在 N 之外触发 membership 假失败；
         // 后续升级（rerank/融合）只改变排序与子集选择，不改变闭环约束。
-        return new Evidence(Collections.unmodifiableList(hits), Collections.unmodifiableList(sources));
+        return new Evidence(
+                Collections.unmodifiableList(hits),
+                Collections.unmodifiableList(sources),
+                candidateTotalUnique,
+                topN
+        );
     }
 
     private static String truncateSnippet(String text, int maxChars) {
@@ -367,10 +473,10 @@ public class EvalChatService {
         return t.substring(0, maxChars) + "…";
     }
 
-    private static List<Document> mergeAndDedupeDocuments(List<Document> documents, int maxDocs) {
+    private static DedupedSlice mergeAndDedupeDocuments(List<Document> documents, int maxDocs) {
         var seen = new LinkedHashMap<String, Document>();
         if (documents == null) {
-            return List.of();
+            return new DedupedSlice(List.of(), 0);
         }
         for (Document d : documents) {
             if (d == null) {
@@ -385,6 +491,10 @@ public class EvalChatService {
             }
             seen.putIfAbsent(key, d);
         }
-        return new ArrayList<>(seen.values()).subList(0, Math.min(maxDocs, seen.size()));
+        int totalUnique = seen.size();
+        var all = new ArrayList<>(seen.values());
+        int take = Math.min(maxDocs, totalUnique);
+        List<Document> slice = new ArrayList<>(all.subList(0, take));
+        return new DedupedSlice(Collections.unmodifiableList(slice), totalUnique);
     }
 }

@@ -100,11 +100,17 @@ public class EvalChatController {
     @PostMapping(value = "/chat", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE + ";charset=UTF-8")
     public EvalChatResponse chat(
             @RequestBody EvalChatRequest request,
-            @RequestHeader(value = "X-Eval-Membership-Top-N", required = false) Integer xEvalMembershipTopN
+            @RequestHeader(value = "X-Eval-Membership-Top-N", required = false) Integer xEvalMembershipTopN,
+            @RequestHeader(value = "X-Eval-Token", required = false) String xEvalToken,
+            @RequestHeader(value = "X-Eval-Target-Id", required = false) String xEvalTargetId,
+            @RequestHeader(value = "X-Eval-Dataset-Id", required = false) String xEvalDatasetId,
+            @RequestHeader(value = "X-Eval-Case-Id", required = false) String xEvalCaseId
     ) {
         long startMs = System.currentTimeMillis();
+        EvalMembershipHttpContext membershipCtx = EvalMembershipHttpContext.fromHeaders(
+                xEvalToken, xEvalTargetId, xEvalDatasetId, xEvalCaseId);
         // 先走同一套 meta/capabilities 拼装，保证契约字段始终齐全；空 query 仅覆盖 answer/behavior。
-        EvalChatResponse body = evalChatService.buildStubResponse(request, xEvalMembershipTopN);
+        EvalChatResponse body = evalChatService.buildStubResponse(request, xEvalMembershipTopN, membershipCtx);
         if (request.getQuery() == null || request.getQuery().isBlank()) {
             body.setAnswer("请求体缺少非空字段 query。");
             body.setBehavior("clarify");

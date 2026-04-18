@@ -8,6 +8,10 @@ import java.util.List;
 
 /**
  * 评测响应 {@code meta}：P0 至少包含 {@code mode}；另含 travel-ai 可控性字段（见 {@code plans/p0-execution-map.md} 附录 C3）。
+ * <p>
+ * 联调说明：上游 eval 平台会将本对象整段快照落库为 {@code eval_result.target_meta_json}（受体积与安全策略约束），
+ * compare 摘要中的 {@code *_meta_trace} 仅包含各 target 在运维侧配置的 {@code eval.targets[].meta-trace-keys} 所列键；
+ * 未配置的键不会出现在 compare trace 中（全量仍以导出接口中的 {@code meta} 为准）。
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
@@ -54,8 +58,23 @@ public class EvalChatMeta {
      */
     private Integer toolCallsCount;
 
-    /** {@code ok|timeout|error}，与顶层 {@code tool.outcome} 一致；未走工具场景时不返回。 */
+    /**
+     * {@code ok|timeout|error|disabled_by_circuit_breaker|rate_limited|…}，与顶层 {@code tool.outcome} 一致；
+     * 未走工具场景时不返回。
+     */
     private String toolOutcome;
+
+    /** 工具调用耗时（ms）；未走工具场景时不返回。 */
+    private Long toolLatencyMs;
+
+    /** 工具是否因熔断被禁用；未走工具场景或未启用熔断时不返回。 */
+    private Boolean toolDisabledByCircuitBreaker;
+
+    /** 工具是否因限流被拒绝；未走工具场景或未启用限流时不返回。 */
+    private Boolean toolRateLimited;
+
+    /** 工具输出是否被截断/摘要；未走工具场景时不返回。 */
+    private Boolean toolOutputTruncated;
 
     /**
      * 是否处于低置信/空命中等门控（P0 不启用 score 阈值时仍可由 stub 置 true 供 eval 统计）。
@@ -78,6 +97,26 @@ public class EvalChatMeta {
      * 检索命中条数（评测 stub）；空命中场景为 0；未参与门控时不返回。
      */
     private Integer retrieveHitCount;
+
+    /**
+     * eval-upgrade.md E7：候选 hitId 的 HMAC-SHA256 证据（64 位小写 hex）；须非空数组才视为携带证据。
+     */
+    private List<String> retrievalHitIdHashes;
+
+    /** 与 {@link #retrievalHitIdHashes} 同时出现；固定为 {@code HMAC-SHA256}。 */
+    private String retrievalHitIdHashAlg;
+
+    /** 与 {@link #retrievalHitIdHashes} 同时出现；固定为 {@code x-eval-token/v1}。 */
+    private String retrievalHitIdHashKeyDerivation;
+
+    /** 与 {@link #retrievalHitIdHashes} 同时出现：候选截断上限 N。 */
+    private Integer retrievalCandidateLimitN;
+
+    /** 与 {@link #retrievalHitIdHashes} 同时出现：去重后的候选总数（截断前）。 */
+    private Integer retrievalCandidateTotal;
+
+    /** 与 {@link #retrievalHitIdHashes} 同时出现：本 target 使用的 canonical id 口径。 */
+    private String canonicalHitIdScheme;
 
     public EvalChatMeta() {
     }
@@ -159,6 +198,38 @@ public class EvalChatMeta {
         this.toolOutcome = toolOutcome;
     }
 
+    public Long getToolLatencyMs() {
+        return toolLatencyMs;
+    }
+
+    public void setToolLatencyMs(Long toolLatencyMs) {
+        this.toolLatencyMs = toolLatencyMs;
+    }
+
+    public Boolean getToolDisabledByCircuitBreaker() {
+        return toolDisabledByCircuitBreaker;
+    }
+
+    public void setToolDisabledByCircuitBreaker(Boolean toolDisabledByCircuitBreaker) {
+        this.toolDisabledByCircuitBreaker = toolDisabledByCircuitBreaker;
+    }
+
+    public Boolean getToolRateLimited() {
+        return toolRateLimited;
+    }
+
+    public void setToolRateLimited(Boolean toolRateLimited) {
+        this.toolRateLimited = toolRateLimited;
+    }
+
+    public Boolean getToolOutputTruncated() {
+        return toolOutputTruncated;
+    }
+
+    public void setToolOutputTruncated(Boolean toolOutputTruncated) {
+        this.toolOutputTruncated = toolOutputTruncated;
+    }
+
     public Boolean getLowConfidence() {
         return lowConfidence;
     }
@@ -189,5 +260,53 @@ public class EvalChatMeta {
 
     public void setRetrieveHitCount(Integer retrieveHitCount) {
         this.retrieveHitCount = retrieveHitCount;
+    }
+
+    public List<String> getRetrievalHitIdHashes() {
+        return retrievalHitIdHashes;
+    }
+
+    public void setRetrievalHitIdHashes(List<String> retrievalHitIdHashes) {
+        this.retrievalHitIdHashes = retrievalHitIdHashes;
+    }
+
+    public String getRetrievalHitIdHashAlg() {
+        return retrievalHitIdHashAlg;
+    }
+
+    public void setRetrievalHitIdHashAlg(String retrievalHitIdHashAlg) {
+        this.retrievalHitIdHashAlg = retrievalHitIdHashAlg;
+    }
+
+    public String getRetrievalHitIdHashKeyDerivation() {
+        return retrievalHitIdHashKeyDerivation;
+    }
+
+    public void setRetrievalHitIdHashKeyDerivation(String retrievalHitIdHashKeyDerivation) {
+        this.retrievalHitIdHashKeyDerivation = retrievalHitIdHashKeyDerivation;
+    }
+
+    public Integer getRetrievalCandidateLimitN() {
+        return retrievalCandidateLimitN;
+    }
+
+    public void setRetrievalCandidateLimitN(Integer retrievalCandidateLimitN) {
+        this.retrievalCandidateLimitN = retrievalCandidateLimitN;
+    }
+
+    public Integer getRetrievalCandidateTotal() {
+        return retrievalCandidateTotal;
+    }
+
+    public void setRetrievalCandidateTotal(Integer retrievalCandidateTotal) {
+        this.retrievalCandidateTotal = retrievalCandidateTotal;
+    }
+
+    public String getCanonicalHitIdScheme() {
+        return canonicalHitIdScheme;
+    }
+
+    public void setCanonicalHitIdScheme(String canonicalHitIdScheme) {
+        this.canonicalHitIdScheme = canonicalHitIdScheme;
     }
 }

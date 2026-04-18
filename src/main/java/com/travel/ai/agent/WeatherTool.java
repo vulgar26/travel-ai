@@ -51,6 +51,23 @@ public class WeatherTool {
     public String getWeather(String cityName) {
         log.info("=== 天气工具被调用了！城市：{} ===", cityName);
 
+        try {
+            return getWeatherStrict(cityName);
+        } catch (java.net.SocketTimeoutException e) {
+            log.warn("调用天气接口超时，城市={}，timeout={}ms", cityName, timeoutMs);
+            return String.format("%s实时天气查询超时（>%dms），请稍后再试。", cityName, timeoutMs);
+        } catch (Exception e) {
+            log.error("调用天气接口异常，城市={}，error={}", cityName, e.toString());
+            return String.format("%s实时天气暂时不可用，请稍后再试。", cityName);
+        }
+    }
+
+    /**
+     * 工具治理用“严格版本”：失败时抛出异常，由上层统一映射为 outcome/error_code。
+     * <p>
+     * 注意：该方法不作为 LLM Tool 暴露，避免模型直接依赖异常语义。
+     */
+    public String getWeatherStrict(String cityName) throws Exception {
         // 如果没有配置真实接口地址，继续走本地模拟数据（避免引入外部依赖）
         if (apiUrl == null || apiUrl.isBlank()) {
             return String.format(
@@ -60,35 +77,27 @@ public class WeatherTool {
         }
 
         // 下面是一个带超时保护的 HTTP 调用示例：
-        try {
-            // 这里只是一个占位写法：真实项目中你可以根据实际天气 API 的路径和参数进行拼接
-            String url = String.format("%s?city=%s&apiKey=%s", apiUrl, cityName, apiKey);
+        // 这里只是一个占位写法：真实项目中你可以根据实际天气 API 的路径和参数进行拼接
+        String url = String.format("%s?city=%s&apiKey=%s", apiUrl, cityName, apiKey);
 
-            Request request = new Request.Builder()
-                    .url(url)
-                    .get()
-                    .build();
+        Request request = new Request.Builder()
+                .url(url)
+                .get()
+                .build();
 
-            try (Response response = client.newCall(request).execute()) {
-                if (!response.isSuccessful() || response.body() == null) {
-                    log.warn("调用天气接口失败，code={}，message={}", response.code(), response.message());
-                    return String.format("%s实时天气暂时获取失败，请稍后重试。", cityName);
-                }
-
-                String body = response.body().string();
-                log.debug("天气接口原始返回: {}", body);
-
-                // 这里不强行解析具体字段，直接返回一段简要描述，避免绑定到某个特定三方 API
-                return String.format("%s实时天气数据已获取（来自外部接口），原始响应片段：%s",
-                        cityName,
-                        body.length() > 100 ? body.substring(0, 100) + "..." : body);
+        try (Response response = client.newCall(request).execute()) {
+            if (!response.isSuccessful() || response.body() == null) {
+                log.warn("调用天气接口失败，code={}，message={}", response.code(), response.message());
+                throw new IllegalStateException("weather_api_failed: code=" + response.code());
             }
-        } catch (java.net.SocketTimeoutException e) {
-            log.warn("调用天气接口超时，城市={}，timeout={}ms", cityName, timeoutMs);
-            return String.format("%s实时天气查询超时（>%dms），请稍后再试。", cityName, timeoutMs);
-        } catch (Exception e) {
-            log.error("调用天气接口异常，城市={}，error={}", cityName, e.toString());
-            return String.format("%s实时天气暂时不可用，请稍后再试。", cityName);
+
+            String body = response.body().string();
+            log.debug("天气接口原始返回: {}", body);
+
+            // 这里不强行解析具体字段，直接返回一段简要描述，避免绑定到某个特定三方 API
+            return String.format("%s实时天气数据已获取（来自外部接口），原始响应片段：%s",
+                    cityName,
+                    body.length() > 100 ? body.substring(0, 100) + "..." : body);
         }
     }
 }
