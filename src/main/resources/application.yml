@@ -103,7 +103,7 @@ app:
   eval:
     # 评测 HTTP 网关密钥：请求头 X-Eval-Gateway-Key 须与本值一致（与 X-Eval-Token 分离；后者仍用于 membership HMAC）
     gateway-key: ${APP_EVAL_GATEWAY_KEY:}
-    # 评测 TOOL 阶段 stub 超时阈值（毫秒）；timeout 场景下工作线程睡眠长于该值以触发 TOOL_TIMEOUT
+    # 评测 TOOL stub 等待上限（毫秒）；timeout 场景下与 app.agent.tool-timeout 取 min 后作为 Future.get 上限（见 EvalToolStageRunner）
     tool-timeout-ms: 100
   agent:
     plan-stage:

@@ -1,5 +1,6 @@
 package com.travel.ai.eval;
 
+import com.travel.ai.config.AppAgentProperties;
 import com.travel.ai.eval.dto.EvalChatRequest;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -18,6 +19,9 @@ import java.util.concurrent.TimeoutException;
  * 由请求体 {@code eval_tool_scenario} 驱动：{@code success|success_truncated|timeout|error|circuit_breaker|rate_limited}；未设置则不执行工具逻辑。
  *
  * 这里的“熔断/限流/截断”场景是为了把 meta 字段跑通（可回归、可分桶），不依赖真实外部工具。
+ * <p>
+ * {@code eval_tool_scenario=timeout} 的等待上限取 {@code min(app.eval.tool-timeout-ms, app.agent.tool-timeout)}（毫秒），
+ * 与主线工具 HTTP 超时同一真源上沿对齐，避免评测 stub 与产品配置语义漂移。
  */
 @Component
 public class EvalToolStageRunner {
@@ -36,10 +40,24 @@ public class EvalToolStageRunner {
     public static final String ERROR_CODE_TOOL_DISABLED_BY_CIRCUIT_BREAKER = "TOOL_DISABLED_BY_CIRCUIT_BREAKER";
     public static final String ERROR_CODE_RATE_LIMITED = "RATE_LIMITED";
 
-    private final long toolTimeoutMs;
+    private final long evalToolTimeoutMsRaw;
+    private final AppAgentProperties appAgentProperties;
 
-    public EvalToolStageRunner(@Value("${app.eval.tool-timeout-ms:100}") long toolTimeoutMs) {
-        this.toolTimeoutMs = Math.max(20L, toolTimeoutMs);
+    public EvalToolStageRunner(
+            @Value("${app.eval.tool-timeout-ms:100}") long evalToolTimeoutMsRaw,
+            AppAgentProperties appAgentProperties
+    ) {
+        this.evalToolTimeoutMsRaw = evalToolTimeoutMsRaw;
+        this.appAgentProperties = appAgentProperties;
+    }
+
+    /**
+     * 评测 stub 的 TOOL 等待上限（毫秒）：{@code min( max(20, app.eval.tool-timeout-ms), max(20, app.agent.tool-timeout) )}。
+     */
+    long effectiveToolDeadlineMs() {
+        long evalCapped = Math.max(20L, evalToolTimeoutMsRaw);
+        long agentMs = Math.max(20L, appAgentProperties.getToolTimeout().toMillis());
+        return Math.min(evalCapped, agentMs);
     }
 
     /**
@@ -77,6 +95,7 @@ public class EvalToolStageRunner {
     }
 
     private EvalToolInvocationResult runWithTimeout() {
+        long deadlineMs = effectiveToolDeadlineMs();
         ExecutorService es = Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "eval-tool-timeout-stub");
             t.setDaemon(true);
@@ -86,13 +105,13 @@ public class EvalToolStageRunner {
         try {
             Future<?> f = es.submit(() -> {
                 try {
-                    Thread.sleep(toolTimeoutMs + 500L);
+                    Thread.sleep(deadlineMs + 500L);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
                 return null;
             });
-            f.get(toolTimeoutMs, TimeUnit.MILLISECONDS);
+            f.get(deadlineMs, TimeUnit.MILLISECONDS);
             long ms = (System.nanoTime() - start) / 1_000_000L;
             return new EvalToolInvocationResult(true, STUB_TOOL_NAME, OUTCOME_OK, EvalToolInvocationResult.Kind.OK, ms);
         } catch (TimeoutException e) {

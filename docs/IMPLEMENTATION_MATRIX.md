@@ -53,7 +53,7 @@
 
 以下在 `travel-ai-upgrade.md` 中出现，但**本仓尚未**完整落地或仅局部存在：
 
-- **评测工作线程级 deadline**（stub 各阶段 CPU 睡眠仍可能使 `latency_ms` 超过 `agent_total_timeout_ms` 的「提示」语义）：尚未强制中断。
+- **评测整段 HTTP 强制中断**：`latency_ms` 仍可能大于 `agent_total_timeout_ms`（未在评测线程上套 `total-timeout`）；`EvalToolStageRunner` 的 timeout stub 已与 `app.agent.tool-timeout` 取 min。
 - **Reflection / recovery**（一次性反思）、`self_check` JSON、`meta.recovery_action`。
 - **长期记忆** `user_profile` / 保留期 / 删除权（文档 P0 整节隐私治理）。
 - **主线与评测**阶段顺序统一为同一枚举序列（当前 SSE 与 `EvalLinearAgentPipeline` 顺序不同）。
@@ -63,7 +63,7 @@
 
 ## 5. 建议的下一步（与外部计划对齐的优先级）
 
-1. **配置收口（续）**：为评测管线内各阶段（如 `EvalToolStageRunner`）增加可选 deadline，与 `app.agent.tool-timeout` / `total-timeout` 强绑定。  
+1. **配置收口（续）**：评测请求级 `total-timeout` 中断或其它阶段 stub 的 deadline 与 `AppAgentProperties` 继续对齐。  
 2. **阶段顺序对齐**：决定 SSOT 为 `…GUARD→WRITE` 或 `…WRITE→GUARD`，同步改 `EvalLinearAgentPipeline` 与文档。  
 3. **可选**：将 Vagent 侧 `travel-ai-upgrade.md` 的「评测对接」小节补充 **`X-Eval-Gateway-Key`**，与本仓一致。  
 4. **P0-2 加深**：主线 Plan schema 与评测 `PlanV1` 对齐程度、repair 路径是否复用评测协调器。
