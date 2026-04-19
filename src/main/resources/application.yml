@@ -110,6 +110,8 @@ app:
     tool-timeout-ms: 100
     # 仅测试用：评测 stub 主路径入口 sleep（毫秒）；生产必须为 0（默认）。见 EvalChatControllerTotalTimeoutTest
     stub-work-sleep-ms: 0
+    # 是否在 eval 响应 meta 中写入 recovery_action（及场景下的 self_check）；false 便于与旧 harness 严格 JSON 对照
+    reflection-meta-enabled: true
   agent:
     plan-stage:
       # 主线 PLAN 是否调用 LLM 产出 JSON（集成测试默认关，见 application-test.yml）

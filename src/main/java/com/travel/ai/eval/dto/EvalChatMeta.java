@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 评测响应 {@code meta}：P0 至少包含 {@code mode}；另含 travel-ai 可控性字段（见 {@code plans/p0-execution-map.md} 附录 C3）。
@@ -138,6 +139,17 @@ public class EvalChatMeta {
 
     /** 与 {@link #retrievalHitIdHashes} 同时出现：本 target 使用的 canonical id 口径。 */
     private String canonicalHitIdScheme;
+
+    /**
+     * 一次性 recovery 占位结论（与 {@code replan_count=0} 正交）：如 {@code none|aborted|continue|suggest_clarify}；
+     * 受 {@code app.eval.reflection-meta-enabled} 控制，关闭时不序列化。
+     */
+    private String recoveryAction;
+
+    /**
+     * 结构化自检摘要（评测 stub）；与 {@link #recoveryAction} 配套出现；无场景时可为空。
+     */
+    private Map<String, Object> selfCheck;
 
     public EvalChatMeta() {
     }
@@ -369,5 +381,21 @@ public class EvalChatMeta {
 
     public void setCanonicalHitIdScheme(String canonicalHitIdScheme) {
         this.canonicalHitIdScheme = canonicalHitIdScheme;
+    }
+
+    public String getRecoveryAction() {
+        return recoveryAction;
+    }
+
+    public void setRecoveryAction(String recoveryAction) {
+        this.recoveryAction = recoveryAction;
+    }
+
+    public Map<String, Object> getSelfCheck() {
+        return selfCheck;
+    }
+
+    public void setSelfCheck(Map<String, Object> selfCheck) {
+        this.selfCheck = selfCheck;
     }
 }

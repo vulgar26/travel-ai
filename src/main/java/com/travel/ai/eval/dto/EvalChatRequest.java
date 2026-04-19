@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.annotation.JsonNaming;
  *   <li>{@code plan_raw}：可选，评测用 plan JSON 原文；不传则使用内置合法默认 plan 做解析观测（Day5）。</li>
  *   <li>{@code eval_tool_scenario}：可选，仅评测用；{@code success|timeout|error} 在 TOOL 阶段触发 stub（Day6）。</li>
  *   <li>{@code eval_rag_scenario}：可选，仅评测用；{@code empty|empty_hits|low_conf|low_confidence} 触发 RAG 门控 stub（Day7）。</li>
+ *   <li>{@code eval_reflection_scenario}：可选；{@code self_check_ok|recovery_suggest_clarify} 写入 {@code meta.recovery_action} 与 {@code meta.self_check}（stub，与 replan 无关）。</li>
  * </ul>
  */
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
@@ -38,6 +39,12 @@ public class EvalChatRequest {
 
     /** 可选：{@code empty|low_conf|…}，触发 {@code meta.low_confidence} 与 {@code meta.low_confidence_reasons[]}（Day7）。 */
     private String evalRagScenario;
+
+    /**
+     * 可选：Reflection / recovery stub；{@code self_check_ok} → {@code recovery_action=continue}；
+     * {@code recovery_suggest_clarify} → {@code recovery_action=suggest_clarify}。见 {@link com.travel.ai.eval.EvalReflectionSupport}。
+     */
+    private String evalReflectionScenario;
 
     public String getQuery() {
         return query;
@@ -85,5 +92,13 @@ public class EvalChatRequest {
 
     public void setEvalRagScenario(String evalRagScenario) {
         this.evalRagScenario = evalRagScenario;
+    }
+
+    public String getEvalReflectionScenario() {
+        return evalReflectionScenario;
+    }
+
+    public void setEvalReflectionScenario(String evalReflectionScenario) {
+        this.evalReflectionScenario = evalReflectionScenario;
     }
 }

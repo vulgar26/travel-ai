@@ -24,7 +24,7 @@ Spring Boot 3 + Spring AI（DashScope）的 **出行规划演示后端**：**JWT
 | Agent 配置 | `app.agent.total-timeout`、`llm-stream-timeout`、`max-steps`、`tool-timeout`（见 `application.yml`） |
 | 安全 | Spring Security：`/api/v1/eval/**` 需认证 + **`X-Eval-Gateway-Key`**；其余业务需 JWT；`JwtSecretStartupValidator` 在 docker/prod 等 profile 强校验密钥 |
 | 限流 | Bucket4j：`app.rate-limit.chat.*`、`app.rate-limit.login.*` |
-| 评测 | `EvalChatService` 等：plan 解析 repair once、TOOL/RAG/safety stub、`meta` 含 `low_confidence_reasons`、E7 membership |
+| 评测 | `EvalChatService` 等：plan 解析 repair once、TOOL/RAG/safety stub、`meta` 含 `low_confidence_reasons`、**`recovery_action` / `self_check`（reflection stub）**、E7 membership |
 | 工程 | Docker Compose、Flyway、Actuator、Testcontainers 集成测试（含 eval 网关 401/200） |
 
 ---

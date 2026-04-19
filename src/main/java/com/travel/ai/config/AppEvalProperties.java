@@ -18,6 +18,11 @@ public class AppEvalProperties {
      */
     private long stubWorkSleepMs = 0L;
 
+    /**
+     * 是否在 eval 响应中写入 {@code meta.recovery_action}（及场景下的 {@code meta.self_check}）；关则完全不写字段，便于旧 harness。
+     */
+    private boolean reflectionMetaEnabled = true;
+
     public String getGatewayKey() {
         return gatewayKey != null ? gatewayKey : "";
     }
@@ -40,5 +45,13 @@ public class AppEvalProperties {
 
     public void setStubWorkSleepMs(long stubWorkSleepMs) {
         this.stubWorkSleepMs = stubWorkSleepMs;
+    }
+
+    public boolean isReflectionMetaEnabled() {
+        return reflectionMetaEnabled;
+    }
+
+    public void setReflectionMetaEnabled(boolean reflectionMetaEnabled) {
+        this.reflectionMetaEnabled = reflectionMetaEnabled;
     }
 }

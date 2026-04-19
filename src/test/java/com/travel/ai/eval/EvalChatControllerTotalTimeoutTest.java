@@ -81,6 +81,7 @@ class EvalChatControllerTotalTimeoutTest {
                 .andExpect(jsonPath("$.meta.step_count").value(0))
                 .andExpect(jsonPath("$.meta.agent_total_timeout_ms").value(300))
                 .andExpect(jsonPath("$.meta.agent_latency_budget_exceeded").value(true))
+                .andExpect(jsonPath("$.meta.recovery_action").value("aborted"))
                 .andExpect(jsonPath("$.latency_ms", lessThanOrEqualTo(700)));
     }
 }

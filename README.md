@@ -130,6 +130,9 @@ npm run dev
 | `app.eval.gateway-key` / `APP_EVAL_GATEWAY_KEY` | 请求头 `X-Eval-Gateway-Key`；未配置则评测路径 401 |
 | `app.eval.tool-timeout-ms` | TOOL stub 与 `app.agent.tool-timeout` 取 min 后的等待上限（毫秒） |
 | `app.eval.stub-work-sleep-ms` | **仅测试**：阻塞 stub 主路径以验证整段 `total-timeout`；生产保持 **0** |
+| `app.eval.reflection-meta-enabled` | 是否在 `meta` 中写入 `recovery_action` / 场景下的 `self_check`（评测 stub）；`false` 时完全不写字段 |
+
+评测请求体可选 **`eval_reflection_scenario`**：`self_check_ok` → `meta.recovery_action=continue` 且带 `meta.self_check`；`recovery_suggest_clarify` → `meta.recovery_action=suggest_clarify`。默认成功路径为 `recovery_action=none`（与 `replan_count=0` 正交，无二次 plan LLM）。
 
 ---
 

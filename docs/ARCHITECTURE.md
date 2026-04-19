@@ -15,6 +15,7 @@
 ### 1.1 评测路径（对齐主线）
 
 - **评测** `POST /api/v1/eval/chat` 的线性占位管线与 **主线 SSE** 同为 **`PLAN→RETRIEVE→TOOL→GUARD→WRITE`**（`EvalLinearAgentPipeline`；短路路径仍可能只返回子序列，如 `PLAN→GUARD`）。  
+- 响应 **`meta`** 可含 **`recovery_action`** / **`self_check`**（`EvalReflectionSupport` 占位；`app.eval.reflection-meta-enabled` 控制；与 `replan_count=0` 正交）。  
 
 ## 2. 单链路约束（为什么要这样做）
 

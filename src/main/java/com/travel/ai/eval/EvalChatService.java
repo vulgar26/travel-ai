@@ -43,6 +43,7 @@ import static com.travel.ai.eval.EvalRagGateScenarios.Kind;
  * 评测聊天：Day2 起在 {@link #buildStubResponse(EvalChatRequest)} 内挂载
  * {@link EvalLinearAgentPipeline}，输出 {@code meta.stage_order} / {@code step_count} / {@code replan_count}；
  * plan 解析后按 {@link PlanPhysicalStagePolicy} 与主线一致对未出现在 {@code steps} 中的阶段做<strong>物理跳过</strong>；内置默认 plan 仍含全五段以便既有契约。
+ * Reflection / recovery stub：由 {@link EvalReflectionSupport} 写入 {@code meta.recovery_action} 与可选 {@code meta.self_check}（受 {@code app.eval.reflection-meta-enabled} 控制）。
  * Day5 起对非空 query 执行 {@link PlanParseCoordinator}（repair once + {@code plan_parse_attempts/outcome}）；
  * Day6 起在 TOOL 阶段串行执行 {@link EvalToolStageRunner}（超时/失败降级 + {@code tool} / {@code meta.tool_*} / {@code error_code}）。
  * Day7 起支持 {@link EvalRagGateScenarios}：空命中/低置信门控（P0 不启用 score 阈值），{@code meta.low_confidence} + {@code meta.low_confidence_reasons[]}。
@@ -133,7 +134,7 @@ public class EvalChatService {
         response.setBehavior("clarify");
         response.setErrorCode(ERROR_CODE_AGENT_TOTAL_TIMEOUT);
         response.setAnswer("本轮评测请求处理超时（已达 app.agent.total-timeout），请缩短输入或稍后重试。");
-        return finalizeResponse(response, membershipCtx, new Evidence(List.of(), List.of(), 0, 0));
+        return complete(response, request, membershipCtx, new Evidence(List.of(), List.of(), 0, 0));
     }
 
     private void stampAgentTimeoutsOnMeta(EvalChatMeta meta) {
@@ -209,7 +210,7 @@ public class EvalChatService {
             meta.setStepCount(0);
             response.setAnswer("Day3：meta 可观测稳定（stage_order / step_count / replan_count=0）；阶段仍为占位执行。");
             response.setBehavior("answer");
-            return response;
+            return complete(response, request, membershipCtx, emptyEvidence());
         }
 
         maybeStubWorkSleepForTests(requestId);
@@ -230,7 +231,7 @@ public class EvalChatService {
                 response.setErrorCode(d.errorCode());
             }
             response.setAnswer(d.answer());
-            return response;
+            return complete(response, request, membershipCtx, emptyEvidence());
         }
 
         PlanParseCoordinator.Result parseResult = planParseCoordinator.parseWithOptionalRepair(request.getPlanRaw());
@@ -243,7 +244,7 @@ public class EvalChatService {
             response.setBehavior("clarify");
             response.setErrorCode("PARSE_ERROR");
             response.setAnswer("Plan JSON 解析失败（已尝试一次修复仍无效）。请提供符合附录 E 的 plan。");
-            return finalizeResponse(response, membershipCtx, emptyEvidence());
+            return complete(response, request, membershipCtx, emptyEvidence());
         }
 
         final PlanV1 planV1;
@@ -255,7 +256,7 @@ public class EvalChatService {
             response.setBehavior("clarify");
             response.setErrorCode("PARSE_ERROR");
             response.setAnswer("Plan JSON 二次解析失败（内部错误）。请提供符合附录 E 的 plan。");
-            return finalizeResponse(response, membershipCtx, emptyEvidence());
+            return complete(response, request, membershipCtx, emptyEvidence());
         }
         PlanPhysicalStagePolicy.PhysicalStageFlags physical = PlanPhysicalStagePolicy.resolve(planV1);
 
@@ -282,7 +283,7 @@ public class EvalChatService {
                 response.setErrorCode(d.errorCode());
             }
             response.setAnswer(d.answer());
-            return finalizeResponse(response, membershipCtx, evidence);
+            return complete(response, request, membershipCtx, evidence);
         }
 
         // P0+ S2：确定性行为策略（tool/clarify），用于收敛典型 BEHAVIOR_MISMATCH。
@@ -316,7 +317,7 @@ public class EvalChatService {
                     meta.setToolOutcome(EvalToolStageRunner.OUTCOME_OK);
                 }
                 response.setAnswer(decision.answer());
-                return finalizeResponse(response, membershipCtx, evidence);
+                return complete(response, request, membershipCtx, evidence);
             }
         }
 
@@ -329,7 +330,7 @@ public class EvalChatService {
             response.setBehavior("clarify");
             response.setErrorCode(EvalRagGateScenarios.ERROR_CODE_RETRIEVE_EMPTY);
             response.setAnswer("检索零命中：请补充关键词/范围/上下文，或提供可引用资料后再继续。");
-            return finalizeResponse(response, membershipCtx, evidence);
+            return complete(response, request, membershipCtx, evidence);
         }
 
         // 业务侧“低置信”兜底门控：短 query / 指代不明 等，避免同类输入漂移到 answer。
@@ -343,7 +344,7 @@ public class EvalChatService {
             response.setBehavior("clarify");
             response.setErrorCode(EvalRagGateScenarios.ERROR_CODE_RETRIEVE_LOW_CONFIDENCE);
             response.setAnswer("信息不足或指代不明：请补充目的地/日期/偏好，或说明你指的是哪个对象/项目。");
-            return finalizeResponse(response, membershipCtx, evidence);
+            return complete(response, request, membershipCtx, evidence);
         }
 
         Kind ragKind = physical.runRetrieve() ? EvalRagGateScenarios.resolve(request) : null;
@@ -362,7 +363,7 @@ public class EvalChatService {
                 response.setAnswer("证据置信不足，已门控为澄清（评测 stub，P0 未启用 score 阈值）。");
             }
             response.setBehavior("clarify");
-            return finalizeResponse(response, membershipCtx, evidence);
+            return complete(response, request, membershipCtx, evidence);
         }
 
         AtomicReference<EvalToolStageRunner.EvalToolInvocationResult> toolSlot = new AtomicReference<>();
@@ -425,19 +426,21 @@ public class EvalChatService {
                     response.setAnswer("工具触发限流，已降级返回（评测 stub）。");
                 }
             }
-            return finalizeResponse(response, membershipCtx, evidence);
+            return complete(response, request, membershipCtx, evidence);
         }
 
         response.setAnswer("Day3：meta 可观测稳定（stage_order / step_count / replan_count=0）；阶段仍为占位执行。");
         response.setBehavior("answer");
-        return finalizeResponse(response, membershipCtx, evidence);
+        return complete(response, request, membershipCtx, evidence);
     }
 
-    private EvalChatResponse finalizeResponse(
+    private EvalChatResponse complete(
             EvalChatResponse response,
+            EvalChatRequest request,
             EvalMembershipHttpContext membershipCtx,
             Evidence evidence
     ) {
+        EvalReflectionSupport.apply(response, request, appEvalProperties.isReflectionMetaEnabled());
         attachRetrievalMembershipMeta(response.getMeta(), response, membershipCtx, evidence);
         return response;
     }

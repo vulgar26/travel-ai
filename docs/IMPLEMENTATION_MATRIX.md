@@ -2,7 +2,7 @@
 
 **维护约定**：以 `src/main/java` 与 `application*.yml` 为真源；本文件随合入更新。**外部计划**路径：`D:\Projects\Vagent\plans\travel-ai-upgrade.md`（不在本仓库内，此处仅摘要对照）。
 
-**更新日期**：2026-04-20（§4/§5 与代码真源同步）
+**更新日期**：2026-04-19（§4/§5 与代码真源同步）
 
 ---
 
@@ -36,6 +36,7 @@
 | TOOL stub、`eval_tool_scenario` | **已满足** | `EvalToolStageRunner.java` |
 | 输入安全门控（Day9） | **已满足** | `EvalChatSafetyGate.java`、`EvalQuerySafetyPolicy.java` |
 | `sources[]` 系统生成、非 LLM 编造 | **评测路径已构造** | `EvalChatService.java` |
+| Reflection / recovery：`meta.recovery_action`、`meta.self_check`、`eval_reflection_scenario` | **已满足（stub）**：`EvalReflectionSupport` + `app.eval.reflection-meta-enabled`；与 `replan_count=0` 正交，无额外 plan LLM | `EvalReflectionSupport.java`、`EvalChatMeta.java`、`EvalChatRequest.java`、`EvalChatService.java` |
 
 ---
 
@@ -53,7 +54,6 @@
 
 以下在 `travel-ai-upgrade.md` 或本仓 `STATUS.md` 中仍为**缺口 / 大项未闭合**（其它已收口项见 §1–§3 表格，勿与本节重复）：
 
-- **Reflection / recovery**（一次性反思）、`self_check` JSON、`meta.recovery_action`。
 - **长期记忆** `user_profile` / 保留期 / 删除权（文档 P0 整节隐私治理）。
 - **按 plan `steps` 物理跳过阶段**：**已做**（`PlanPhysicalStagePolicy` + 主线 `TravelAgent` + 评测 `EvalChatService` / `EvalLinearAgentPipeline`；默认合法 plan 仍含全阶段以保持既有 eval 契约）。  
 - **`conversationId` 归口**：已实现 `POST /travel/conversations` 签发 + Redis 登记；`GET /travel/chat/{id}` 路径校验；`app.conversation.require-registration` 为 `true` 时强校验归属（默认 `false` 兼容演示/测试，见 `application.yml`）。
@@ -69,10 +69,11 @@
 
 **已收口（§5 原第 2 条）**：按 `plan.steps` 物理跳过阶段（`PlanPhysicalStagePolicy`；评测默认 plan 仍为五步全量）。
 
+**已收口（§5 原第 3 条）**：Reflection / recovery 评测契约 stub（`meta.recovery_action`、`meta.self_check`、`eval_reflection_scenario`，`app.eval.reflection-meta-enabled`）。
+
 **当前推荐执行顺序**：
 
-1. **Reflection / recovery**（`meta.recovery_action` 等，依赖 eval 契约）。  
-2. **长期记忆与隐私治理**（`user_profile`、保留期、删除权）。  
-3. **工程债**：部分接口错误体统一 JSON、`docs/UPGRADE_PLAN.md` 中尚未收口项。
+1. **长期记忆与隐私治理**（`user_profile`、保留期、删除权）。  
+2. **工程债**：部分接口错误体统一 JSON、`docs/UPGRADE_PLAN.md` 中尚未收口项。
 
 **维护提醒**：若调整 SSE 线性阶段顺序，须同步 `EvalLinearAgentPipeline`、`EvalChatService` 中手工 `stage_order` 与相关契约测试。  

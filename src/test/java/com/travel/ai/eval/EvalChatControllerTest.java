@@ -147,6 +147,20 @@ class EvalChatControllerTest {
     }
 
     @Test
+    void evalReflectionScenario_selfCheckOk_setsContinueAndSelfCheck() throws Exception {
+        String body = """
+                {"query":"评测reflection场景加长到超过六字","mode":"AGENT","eval_reflection_scenario":"self_check_ok"}
+                """;
+        mockMvc.perform(post("/api/v1/eval/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.meta.recovery_action").value("continue"))
+                .andExpect(jsonPath("$.meta.self_check.passed").value(true))
+                .andExpect(jsonPath("$.capabilities.guardrails.reflection").value(true));
+    }
+
+    @Test
     void chatReturnsSnakeCaseAndRequiredFields() throws Exception {
         String body = """
                 {"query":"上海三日游行程规划与预算偏好说明","mode":"AGENT","conversation_id":"c1"}
@@ -172,6 +186,7 @@ class EvalChatControllerTest {
                 .andExpect(jsonPath("$.meta.replan_count").value(EvalChatMeta.P0_REPLAN_COUNT))
                 .andExpect(jsonPath("$.meta.plan_parse_attempts").value(1))
                 .andExpect(jsonPath("$.meta.plan_parse_outcome").value("success"))
+                .andExpect(jsonPath("$.meta.recovery_action").value("none"))
                 .andExpect(jsonPathAbsentOrNull("$.tool"))
                 .andExpect(jsonPathAbsentOrNull("$.meta.tool_calls_count"));
     }
@@ -257,7 +272,8 @@ class EvalChatControllerTest {
                 .andExpect(jsonPath("$.meta.plan_parse_attempts").value(2))
                 .andExpect(jsonPath("$.meta.plan_parse_outcome").value("failed"))
                 .andExpect(jsonPath("$.meta.step_count").value(0))
-                .andExpect(jsonPath("$.meta.stage_order.length()").value(0));
+                .andExpect(jsonPath("$.meta.stage_order.length()").value(0))
+                .andExpect(jsonPath("$.meta.recovery_action").value("aborted"));
     }
 
     /**
