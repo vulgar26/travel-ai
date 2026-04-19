@@ -2,7 +2,7 @@
 
 **维护约定**：以 `src/main/java` 与 `application*.yml` 为真源；本文件随合入更新。**外部计划**路径：`D:\Projects\Vagent\plans\travel-ai-upgrade.md`（不在本仓库内，此处仅摘要对照）。
 
-**更新日期**：2026-04-19（§4/§5 与代码真源同步）
+**更新日期**：2026-04-18（§4/§5 与代码真源同步）
 
 ---
 
@@ -18,6 +18,7 @@
 | QueryRewriter 畸形兜底 | **已满足**：失败/空行回退与补齐、`max-line-length` | `QueryRewriter.java`、`app.rag.rewrite.max-line-length` |
 | 零命中门控 | **已满足**：`RetrieveEmptyHitGate` + `app.rag.empty-hits-behavior` | `RetrieveEmptyHitGate.java`、`TravelAgent.java` |
 | 串行工具、熔断、限流 | **已满足**：天气路径使用 `ToolExecutor` + `ToolCircuitBreaker` + `ToolRateLimiter` | `com.travel.ai.tools.*`、`WeatherTool.java` |
+| P0 长期记忆 / 隐私：`user_profile`、删除权、最小化槽位、默认关闭注入；从对话抽取须可确认 | **已满足（基线 + 抽取）**：同上；**抽取**为无记忆 `profileExtractionChatClient` + `ChatMemory` 摘录；默认 `require-confirm` 仅 Redis pending，`confirm-extraction` 落库；`after-chat` 可选 | `ProfileExtraction*.java`、`ProfileExtractionChatClientConfig.java`、`UserProfilePendingExtractionStore.java`、`UserProfileController` |
 
 ---
 
@@ -54,7 +55,7 @@
 
 以下在 `travel-ai-upgrade.md` 或本仓 `STATUS.md` 中仍为**缺口 / 大项未闭合**（其它已收口项见 §1–§3 表格，勿与本节重复）：
 
-- **长期记忆** `user_profile` / 保留期 / 删除权（文档 P0 整节隐私治理）。
+- **长期记忆** `user_profile` / 删除权 / 从对话抽取（默认待确认）：**已做**。**未做**：独立「按字段」合规审计流、删除画像时可选清 Redis（见下一迭代）；**短期记忆保留期**仍见 `RedisChatMemory`（天级 TTL + 条数上限），与画像表正交。
 - **按 plan `steps` 物理跳过阶段**：**已做**（`PlanPhysicalStagePolicy` + 主线 `TravelAgent` + 评测 `EvalChatService` / `EvalLinearAgentPipeline`；默认合法 plan 仍含全阶段以保持既有 eval 契约）。  
 - **`conversationId` 归口**：已实现 `POST /travel/conversations` 签发 + Redis 登记；`GET /travel/chat/{id}` 路径校验；`app.conversation.require-registration` 为 `true` 时强校验归属（默认 `false` 兼容演示/测试，见 `application.yml`）。
 - **SSE 与评测的 plan 可观测性差异**：主线 PLAN 解析结论在日志字段 **`[plan]`** `plan_parse_outcome` / `plan_parse_attempts`（与评测 `meta.plan_parse_*` 口径一致）；**未**在 SSE HTTP 响应体中回显 `plan_parse_*`（若要对齐 harness 再立项）。
@@ -73,7 +74,7 @@
 
 **当前推荐执行顺序**：
 
-1. **长期记忆与隐私治理**（`user_profile`、保留期、删除权）。  
+1. ~~**长期记忆与隐私治理**（`user_profile`、删除权、可选 prompt 注入）~~：**已收口（基线）**；后续可选：自动摘要写入（须用户确认）、更细 retention。  
 2. **工程债**：部分接口错误体统一 JSON、`docs/UPGRADE_PLAN.md` 中尚未收口项。
 
 **维护提醒**：若调整 SSE 线性阶段顺序，须同步 `EvalLinearAgentPipeline`、`EvalChatService` 中手工 `stage_order` 与相关契约测试。  

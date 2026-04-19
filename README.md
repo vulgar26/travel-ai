@@ -90,6 +90,14 @@ npm run dev
 | `POST` | `/auth/login` | 否 | JSON 用户名密码，返回 JWT |
 | `POST` | `/travel/conversations` | Bearer JWT | 服务端生成并登记 `conversationId`，JSON：`{"conversationId":"..."}` |
 | `POST` | `/knowledge/upload` | Bearer JWT | `multipart/form-data`，字段 `file` |
+| `GET` | `/travel/profile` | Bearer JWT | 长期画像 JSON：`schemaVersion` + `profile`（对象；无记录时为空对象） |
+| `PUT` | `/travel/profile` | Bearer JWT | 请求体 `{"profile":{...}}` 整包替换（顶层仅字符串/数字/布尔；槽位与长度见 `app.memory.profile.*`） |
+| `PATCH` | `/travel/profile` | Bearer JWT | 请求体 `{"profile":{...}}` 浅合并；字段置 `null` 表示删除该键 |
+| `DELETE` | `/travel/profile` | Bearer JWT | 删除当前用户画像（**204**；幂等） |
+| `POST` | `/travel/profile/extract-suggestion` | Bearer JWT | 从 Redis 会话抽取画像建议 JSON；体 `{"conversationId":"…","saveAsPending":true}`；须 `app.memory.auto-extract.enabled=true` |
+| `GET` | `/travel/profile/pending-extraction?conversationId=…` | Bearer JWT | 读取待确认的合并预览（无则 **404**） |
+| `POST` | `/travel/profile/confirm-extraction` | Bearer JWT | 体 `{"conversationId":"…"}` 将待确认合并结果写入 PG 并清除 pending |
+| `DELETE` | `/travel/profile/pending-extraction?conversationId=…` | Bearer JWT | 放弃待确认（**204**） |
 | `GET` | `/travel/chat/{conversationId}?query=...` | Bearer JWT | **SSE**（`text/event-stream`）；`conversationId` 须符合字母数字与 `_-`，且长度 ≤128 |
 | `POST` | `/api/v1/eval/chat` | **网关密钥** `X-Eval-Gateway-Key` + 已认证主体 | 评测用 **JSON**（非流式）；eval 侧另有 `X-Eval-Token` 等 membership 头，见 Vagent `eval-upgrade.md` |
 | `GET` | `/actuator/health`、`/actuator/info` | 否 | 健康与信息 |
@@ -106,6 +114,22 @@ npm run dev
 | `APP_JWT_SECRET` | JWT 密钥；Compose/生产建议 ≥32 字符（`docker` 等 profile 下弱密钥会启动失败） |
 | `WEATHER_API_KEY` | 天气 API（可选） |
 | `APP_EVAL_GATEWAY_KEY` | 与请求头 `X-Eval-Gateway-Key` 一致；联调 eval 时必需 |
+
+### `app.memory`（长期画像，`application.yml`）
+
+| 配置项 | 含义 |
+|--------|------|
+| `app.memory.long-term.enabled` | `true` 时主线可从库读取画像；默认 `false` |
+| `app.memory.long-term.inject-into-prompt` | 在 `enabled=true` 时是否把画像块注入 `TravelAgent` WRITE 前最终 prompt |
+| `app.memory.long-term.skip-usernames` | 不加载/不注入的主体名（如 `anonymous`、`eval-gateway`） |
+| `app.memory.profile.max-slots` | 顶层字段数量上限（默认 10） |
+| `app.memory.profile.max-value-chars` | 单个字符串值最大长度 |
+| `app.memory.profile.max-inject-chars` | 注入 prompt 的 JSON 文本最大字符数（超出截断） |
+| `app.memory.auto-extract.enabled` | 为 `true` 时才允许 LLM 抽取（手动 `extract-suggestion` 与 `after-chat`） |
+| `app.memory.auto-extract.after-chat` | 每轮 SSE 正常结束后异步抽取（仍受 `enabled` 约束） |
+| `app.memory.auto-extract.require-confirm` | `true`（默认）：仅写 Redis 待确认；`false`：after-chat 路径下**直接** upsert 画像（慎用） |
+| `app.memory.auto-extract.pending-ttl` | 待确认 Redis 记录 TTL |
+| `app.memory.auto-extract.llm-timeout-seconds` | 抽取调用墙钟上限 |
 
 ### `app.conversation`（`application.yml`）
 

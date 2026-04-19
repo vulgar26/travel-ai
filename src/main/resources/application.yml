@@ -76,6 +76,27 @@ weather:
   timeout-ms: 3000
 
 app:
+  memory:
+    long-term:
+      # 默认关闭：开启后才会从库加载画像，并在 inject-into-prompt=true 时注入主线 WRITE 前 prompt
+      enabled: false
+      inject-into-prompt: true
+      skip-usernames:
+        - eval-gateway
+        - anonymous
+    profile:
+      max-slots: 10
+      max-value-chars: 512
+      max-inject-chars: 1200
+    auto-extract:
+      # 为 true 时才允许 LLM 抽取（手动 POST /travel/profile/extract-suggestion 与 after-chat 钩子）
+      enabled: false
+      # SSE 整轮正常结束后异步抽取（仍受 enabled 约束）
+      after-chat: false
+      # true：仅写 Redis 待确认，须 POST /travel/profile/confirm-extraction；false：after-chat 下直接 upsert 画像（慎用）
+      require-confirm: true
+      pending-ttl: 1h
+      llm-timeout-seconds: 12
   conversation:
     # true：仅允许已通过 POST /travel/conversations 登记到当前用户的 conversationId 访问 GET /travel/chat/{id}（生产推荐）
     require-registration: false

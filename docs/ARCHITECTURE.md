@@ -20,7 +20,7 @@
 ## 2. 单链路约束（为什么要这样做）
 
 - 每次请求仅保留 **一套** 检索与上下文注入逻辑，避免重复检索导致的成本与延迟不可控。
-- 检索到的文本进入 `promptBase`；计划 JSON 与工具观察块在 `TOOL` 末合并为 `finalPromptForLlm` 再进入 `WRITE`（门控命中时可能跳过 LLM，仅下发澄清）。
+- 检索到的文本进入 `promptBase`；计划 JSON 与工具观察块在 `TOOL` 末（或 TOOL 被跳过时等价路径）合并为 `finalPromptForLlm`；若 `app.memory.long-term.enabled` 与 `inject-into-prompt` 为真，则在合并结果前可选附加 **用户画像** 前缀（`UserProfileService`，不打印画像全文）。随后进入 `WRITE`（门控命中时可能跳过 LLM，仅下发澄清）。
 
 ## 3. 关键可观测点（最小版）
 

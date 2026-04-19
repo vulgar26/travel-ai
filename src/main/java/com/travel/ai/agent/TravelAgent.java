@@ -4,6 +4,8 @@ import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
 import com.travel.ai.agent.guard.RetrieveEmptyHitGate;
 import com.travel.ai.agent.plan.MainLinePlanProposer;
 import com.travel.ai.config.AppAgentProperties;
+import com.travel.ai.profile.ProfileExtractionCoordinator;
+import com.travel.ai.profile.UserProfileService;
 import com.travel.ai.plan.PlanParseCoordinator;
 import com.travel.ai.plan.PlanParseException;
 import com.travel.ai.plan.PlanParser;
@@ -25,6 +27,7 @@ import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.filter.Filter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.codec.ServerSentEvent;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
@@ -77,6 +80,8 @@ public class TravelAgent {
     private final PlanParseCoordinator planParseCoordinator;
     private final PlanParser planParser;
     private final AppAgentProperties appAgentProperties;
+    private final UserProfileService userProfileService;
+    private final ProfileExtractionCoordinator profileExtractionCoordinator;
 
     @Value("${app.tools.weather.enabled:true}")
     private boolean weatherToolEnabled;
@@ -115,7 +120,9 @@ public class TravelAgent {
                        MainLinePlanProposer mainLinePlanProposer,
                        PlanParseCoordinator planParseCoordinator,
                        PlanParser planParser,
-                       AppAgentProperties appAgentProperties) {
+                       AppAgentProperties appAgentProperties,
+                       UserProfileService userProfileService,
+                       ProfileExtractionCoordinator profileExtractionCoordinator) {
         this.chatMemory = chatMemory;
         this.vectorStore = vectorStore;
         this.queryRewriter = queryRewriter;
@@ -126,6 +133,8 @@ public class TravelAgent {
         this.planParseCoordinator = planParseCoordinator;
         this.planParser = planParser;
         this.appAgentProperties = appAgentProperties;
+        this.userProfileService = userProfileService;
+        this.profileExtractionCoordinator = profileExtractionCoordinator;
         this.chatClient = builder
                 .defaultSystem(SYSTEM_PROMPT)
                 .defaultAdvisors(
@@ -164,6 +173,8 @@ public class TravelAgent {
         log.info("调用AI，conversationId={}, requestId={}, message={}", conversationId, requestId, userMessage);
         log.info("[agent] timeout_config total={} llm_stream={} max_steps={} (pipeline_steps={}) requestId={}",
                 agentTotalTimeout, llmStreamTimeout, agentMaxSteps, FIXED_PIPELINE_STAGE_COUNT, requestId);
+
+        final String profileExtractionUsername = currentUsernameForProfileHook();
 
         MainAgentTurnContext ctx = new MainAgentTurnContext(conversationId, userMessage, requestId);
         runLinearStages(ctx);
@@ -208,7 +219,16 @@ public class TravelAgent {
                                     .build());
                         })
                 .doOnCancel(() -> log.info("SSE 订阅已取消（多为客户端断开），conversationId={}, requestId={}", conversationId, requestId))
+                .doOnComplete(() -> profileExtractionCoordinator.onChatCompleted(profileExtractionUsername, conversationId, requestId))
                 .doFinally(signalType -> MDC.remove("requestId"));
+    }
+
+    private static String currentUsernameForProfileHook() {
+        var auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return null;
+        }
+        return auth.getName();
     }
 
     private static boolean isTotalTimeout(Throwable t) {
@@ -285,11 +305,12 @@ public class TravelAgent {
         logStageBoundary("TOOL", t0, ctx.requestId);
     }
 
-    private static void mergeFinalPromptFromCtx(MainAgentTurnContext ctx) {
+    private void mergeFinalPromptFromCtx(MainAgentTurnContext ctx) {
+        String profileBlock = userProfileService.buildPromptPrefixBlock(ctx.currentUser);
         String planBlock = (ctx.planJson != null && !ctx.planJson.isBlank())
                 ? "【本轮执行计划（结构化，须遵守）】\n" + ctx.planJson + "\n\n"
                 : "";
-        ctx.finalPromptForLlm = ctx.toolPreface + planBlock + ctx.promptBase;
+        ctx.finalPromptForLlm = profileBlock + ctx.toolPreface + planBlock + ctx.promptBase;
     }
 
     private void logStageBoundary(String stage, long startNs, String requestId) {

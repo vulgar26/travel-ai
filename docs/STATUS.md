@@ -1,6 +1,6 @@
 # 项目现状（以代码为准）
 
-**更新时间**：2026-04-19  
+**更新时间**：2026-04-18  
 **仓库**：`travel-ai-planner`  
 **实现真源**：`src/main/java`、`src/main/resources/application.yml`  
 **与 Vagent 计划对照**：[`docs/IMPLEMENTATION_MATRIX.md`](IMPLEMENTATION_MATRIX.md)（逐项对应 `travel-ai-upgrade.md` 类目标，含「已做 / 未做 / 偏差」）
@@ -24,6 +24,7 @@ Spring Boot 3 + Spring AI（DashScope）的 **出行规划演示后端**：**JWT
 | Agent 配置 | `app.agent.total-timeout`、`llm-stream-timeout`、`max-steps`、`tool-timeout`（见 `application.yml`） |
 | 安全 | Spring Security：`/api/v1/eval/**` 需认证 + **`X-Eval-Gateway-Key`**；其余业务需 JWT；`JwtSecretStartupValidator` 在 docker/prod 等 profile 强校验密钥 |
 | 限流 | Bucket4j：`app.rate-limit.chat.*`、`app.rate-limit.login.*` |
+| 长期画像 | Postgres `user_profile`；`GET/PUT/PATCH/DELETE /travel/profile`；`app.memory.long-term` 控制是否注入主线 prompt；**从对话抽取**（`ProfileExtractionService` + `POST/GET/POST/DELETE …/extract-suggestion|pending-extraction|confirm-extraction`）；`app.memory.auto-extract.after-chat` 可选在 SSE 完成后异步写待确认或直接落库；Redis 会话仍为短期记忆（TTL 见 `RedisChatMemory`） |
 | 评测 | `EvalChatService` 等：plan 解析 repair once、TOOL/RAG/safety stub、`meta` 含 `low_confidence_reasons`、**`recovery_action` / `self_check`（reflection stub）**、E7 membership |
 | 工程 | Docker Compose、Flyway、Actuator、Testcontainers 集成测试（含 eval 网关 401/200） |
 
@@ -33,6 +34,7 @@ Spring Boot 3 + Spring AI（DashScope）的 **出行规划演示后端**：**JWT
 
 - **`conversationId`**：已支持服务端签发与 Redis 登记；生产可设 `app.conversation.require-registration=true` 强制先 `POST /travel/conversations` 再拉 SSE。  
 - **部分接口错误体**：上传等路径返回形态未必统一 JSON（见历史债）。  
+- **长期记忆**：已实现画像存储、删除权与「从对话 LLM 抽取 → 默认待确认 → 显式 confirm」；**未**实现客户端内嵌式一键确认 UI 与复杂合规审计流。  
 - **阶段顺序**：评测 stub 与主线均为 `…TOOL→GUARD→WRITE`（详见 `IMPLEMENTATION_MATRIX.md`）。  
 - **未配置 `APP_EVAL_GATEWAY_KEY`** 时：评测路径全部 401（有意防误暴露）。
 
