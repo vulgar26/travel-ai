@@ -1,122 +1,75 @@
-# 🗺️ Travel AI Planner · 智能出行规划助手
+# Travel AI Planner
 
-面向作品集与演示的 **RAG + SSE** 后端：**查询改写 → pgvector 检索 → 上下文增强 → 流式生成**；配套 JWT、限流、Docker Compose 与最小前端。
+Spring Boot 后端：**RAG（pgvector）+ SSE 流式对话**；JWT 鉴权、按用户隔离的知识与 Redis 会话、限流与健康检查；可选最小前端。默认端口 **8081**。
 
 [![CI](https://github.com/vulgar26/travel-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/vulgar26/travel-ai/actions/workflows/ci.yml)
 
-**当前里程碑**：[`v0.1-mvp`](CHANGELOG.md)（变更见 [`CHANGELOG.md`](CHANGELOG.md)）。
+---
+
+## 文档
+
+| 文档 | 内容 |
+|------|------|
+| [docs/IMPLEMENTATION_MATRIX.md](docs/IMPLEMENTATION_MATRIX.md) | **实现与计划对照**（本仓代码 ↔ 外部升级说明；含已做项与缺口） |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 请求链路、安全、SSE、Compose |
+| [docs/STATUS.md](docs/STATUS.md) | 当前能力摘要 |
+| [CHANGELOG.md](CHANGELOG.md) | 版本变更记录 |
+
+其余：`docs/UPGRADE_PLAN.md`（评审项清单）、`docs/eval.md`（手工 RAG 回归表）、`docs/demo.md`（演示步骤）、`frontend/README.md`（前端）、`docs/RESUME_BULLETS.md`（简历 bullet）。
 
 ---
 
-## 一页速览
-
-| 项 | 说明 |
-| --- | --- |
-| 实现 ↔ 升级计划对照 | [`docs/IMPLEMENTATION_MATRIX.md`](docs/IMPLEMENTATION_MATRIX.md)（本仓代码 vs Vagent `travel-ai-upgrade`） |
-| 架构与可观测 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)（含 `[perf]` 分段耗时） |
-| 约 60 秒演示 | [`docs/demo.md`](docs/demo.md) |
-| 最小前端 | [`frontend/README.md`](frontend/README.md) |
-| 简历表述 | [`docs/RESUME_BULLETS.md`](docs/RESUME_BULLETS.md) |
-| 项目状态 | [`docs/STATUS.md`](docs/STATUS.md) |
+## 架构一览
 
 ```mermaid
 flowchart LR
-  subgraph client [客户端]
-    FE[frontend 或 API 客户端]
-  end
-  subgraph spring [Spring Boot]
-    TC[TravelController]
-    TA[TravelAgent]
-    VR[改写与向量检索]
-  end
+  FE[客户端 / frontend]
+  TC[TravelController]
+  TA[TravelAgent]
   PG[(PostgreSQL pgvector)]
   RD[(Redis)]
-  LLM[通义千问 DashScope]
+  LLM[DashScope 通义]
   FE -->|JWT + SSE| TC --> TA
-  TA --> VR --> PG
+  TA --> PG
   TA --> RD
   TA --> LLM
 ```
 
----
-
-## 项目亮点
-
-- **一条 RAG 链路收口**：`QueryRewriter` 生成多路检索 query → `VectorStore`（pgvector）召回 → 拼进 prompt → **SSE** 流式输出；同一请求内不重复检索，成本与延迟可控。
-- **按用户隔离的知识与记忆**：上传与检索写入 `metadata.user_id`，SQL 侧过滤；Redis 对话 key 与 **Spring Security** 当前用户绑定，避免多账号串库。
-- **可解释 + 可观测**：SSE **首段 `data`** 输出本轮引用片段（id / 来源 / 正文摘要）；日志中带 MDC `requestId` 与 **`[perf]`** 分段耗时（改写、检索、首 token、流结束），便于对照慢在哪一段。
-- **最小「能上线」包**：JWT 保护业务接口；`/travel/chat` **Bucket4j** 限流（超额 429 + JSON）；LLM 与天气工具 **超时与降级**；**Actuator** 健康探活，方便 Compose / 负载均衡验收。
-- **SSE 工程细节**：`ServerSentEvent` 区分正文与 **comment 心跳**；`share()` 合并心跳与正文，避免重复打模型；断线时取消订阅可追踪。
-- **向量与 schema 工程化**：自研 **JDBC + pgvector** 实现 Spring AI `VectorStore`；**Flyway** 管理表结构；**Docker Compose** 拉齐 App / Postgres / Redis。
-- **可复现与产品感**：**Testcontainers** 集成测试 + **GitHub Actions** `mvn test`；仓库内 **`frontend/`** 最小登录 + 流式演示页；评测问题集见 **`docs/eval.md`**。
-- **工具扩展**：集成 **天气** `WeatherTool`（API Key 可选），由模型按需调用。
+对话在 `TravelAgent` 内按固定顺序执行：**计划 → 检索 → 工具 → 门控 → 流式生成**；首包 SSE 为引用片段，随后为正文与心跳。细节见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 ---
 
-## 技术栈
+## 快速开始
 
-| 类别 | 选型 |
-| --- | --- |
-| 框架 | Spring Boot 3.3.5、Spring AI Alibaba 1.1.2.0 |
-| 模型 | 通义千问 `qwen3.5-plus`（DashScope） |
-| 数据 | PostgreSQL + **pgvector**、Redis |
-| 交付 | Docker Compose、Flyway、Testcontainers、GitHub Actions |
+### 前置
 
----
+- JDK 17+、Maven（或 IDE 内置）
+- 本机 **PostgreSQL（含 pgvector）** 与 **Redis**，或使用 **Docker Compose** 一键起依赖
 
-## 核心 API（需登录部分）
+### 配置
 
-| 能力 | 方法 | 路径 | 说明 |
-| --- | --- | --- | --- |
-| 登录 | `POST` | `/auth/login` | 演示账号见下文；返回 JWT |
-| 上传知识 | `POST` | `/knowledge/upload` | `multipart/form-data`，字段 `file` |
-| 对话（SSE） | `GET` | `/travel/chat/{conversationId}?query=...` | Header：`Authorization: Bearer <JWT>` |
-| 健康检查 | `GET` | `/actuator/health` | 匿名可访问聚合状态 |
+敏感项不要提交仓库。任选其一：
 
-未带有效 JWT 访问受保护接口返回 **401**；聊天接口触发限流返回 **429**（JSON 错误体）。
+- 环境变量（见下表），或
+- `src/main/resources/application-local.yml`（已在 `.gitignore`；根 `application.yml` 已 `optional:import` 该文件）
 
----
+### 本地运行（IDE）
 
-## 环境变量
+1. 配置 `SPRING_AI_DASHSCOPE_API_KEY` 等（见环境变量表）。
+2. 运行 `com.travel.ai.TravelAiApplication`。
+3. 健康检查：`GET http://localhost:8081/actuator/health`
 
-敏感配置不要写进仓库；可用环境变量或 **`src/main/resources/application-local.yml`**（已在 `.gitignore`，勿提交）。
+### Docker Compose
 
-| 变量名 | 说明 | 必需 |
-| --- | --- | --- |
-| `SPRING_AI_DASHSCOPE_API_KEY` | 通义千问 API Key | 是 |
-| `APP_JWT_SECRET` | JWT 签名密钥（建议 ≥32 字节随机串） | 生产与 Compose 为是 |
-| `WEATHER_API_KEY` | 天气 API | 视是否启用天气功能 |
-| `APP_EVAL_GATEWAY_KEY` | 评测网关（`/api/v1/eval/**` 的 `X-Eval-Gateway-Key`）；也可写在 `application-local.yml` 的 `app.eval.gateway-key` | 与 vagent-eval 联调时为是 |
+```powershell
+Copy-Item .env.example .env   # 或 cp
+# 编辑 .env：SPRING_AI_DASHSCOPE_API_KEY、APP_JWT_SECRET、POSTGRES_PASSWORD 等
+docker compose up -d --build
+```
 
----
-
-## 本地运行
-
-### 方式一：IDE
-
-1. 准备本机 **PostgreSQL（含 pgvector）** 与 **Redis**，或在 `application-local.yml` 中指向可用实例。
-2. 设置 `SPRING_AI_DASHSCOPE_API_KEY`（及可选变量），或写入 `application-local.yml`。
-3. 与 **vagent-eval** 联调时：在 `application-local.yml` 配置 **`app.eval.gateway-key`**（或环境变量 **`APP_EVAL_GATEWAY_KEY`**），与 eval 侧 **`eval-gateway-key`** 一致；`application.yml` 已 **`optional:classpath:application-local.yml`**，有文件即自动合并。
-4. 运行主类 `TravelAiApplication`（默认端口 **8081**）。
-
-### 方式二：Docker Compose（推荐）
-
-依赖：Docker Desktop 或 Docker Engine + Compose v2。
-
-1. `Copy-Item .env.example .env`（Windows）或 `cp .env.example .env`
-2. 编辑 `.env`：至少填写 **`SPRING_AI_DASHSCOPE_API_KEY`**，并确认 **`APP_JWT_SECRET`**、**`POSTGRES_PASSWORD`**
-3. 项目根目录：`docker compose up -d --build`
-4. 验收：`curl http://localhost:8081/actuator/health` → `{"status":"UP"}`
-
-说明：
-
-- 表结构由 **Flyway** 启动时执行（如 `db/migration/V1__init_pgvector.sql`）。
-- 宿主机端口映射：**`8081`**（应用）、**`5433→5432`**（Postgres）、**`6380→6379`**（Redis）；容器内仍用服务名 `postgres`、`redis`。
-- 镜像拉取若在国内较慢，可参考 `.env.example` 中的镜像源说明或配置 Docker **registry-mirrors**。
+应用 **8081**；映射 **5433→Postgres**、**6380→Redis**（见 `docker-compose.yml`）。表结构由 **Flyway** 迁移。
 
 ### 最小前端（可选）
-
-后端在 **8081** 就绪后：
 
 ```powershell
 cd frontend
@@ -124,25 +77,44 @@ npm install
 npm run dev
 ```
 
-浏览器打开提示地址（多为 `http://localhost:5173`），演示账号 **`demo` / `demo123`**。Vite 将 `/api` 代理到 `http://127.0.0.1:8081`。
+默认代理 `/api` → `8081`；演示账号 **demo / demo123**（与内存用户一致）。
+
+---
+
+## HTTP 接口
+
+| 方法 | 路径 | 认证 | 说明 |
+|------|------|------|------|
+| `POST` | `/auth/login` | 否 | JSON 用户名密码，返回 JWT |
+| `POST` | `/knowledge/upload` | Bearer JWT | `multipart/form-data`，字段 `file` |
+| `GET` | `/travel/chat/{conversationId}?query=...` | Bearer JWT | **SSE**（`text/event-stream`） |
+| `POST` | `/api/v1/eval/chat` | **网关密钥** `X-Eval-Gateway-Key` + 已认证主体 | 评测用 **JSON**（非流式）；eval 侧另有 `X-Eval-Token` 等 membership 头，见 Vagent `eval-upgrade.md` |
+| `GET` | `/actuator/health`、`/actuator/info` | 否 | 健康与信息 |
+
+未带 JWT 访问受保护业务接口 → **401**。聊天超频 → **429**（JSON）。未配置或未携带正确评测网关密钥访问 `/api/v1/eval/**` → **401**。
+
+---
+
+## 环境变量
+
+| 变量 | 说明 |
+|------|------|
+| `SPRING_AI_DASHSCOPE_API_KEY` | 通义千问（必需用于真实对话） |
+| `APP_JWT_SECRET` | JWT 密钥；Compose/生产建议 ≥32 字符（`docker` 等 profile 下弱密钥会启动失败） |
+| `WEATHER_API_KEY` | 天气 API（可选） |
+| `APP_EVAL_GATEWAY_KEY` | 与请求头 `X-Eval-Gateway-Key` 一致；联调 eval 时必需 |
 
 ---
 
 ## 测试与 CI
 
-- **集成测试**：本机需 **Docker**。根目录执行 `mvn test`（Testcontainers 拉起临时 Postgres + Redis，跑 Flyway、`/actuator/health` 等）。
-- 无 Docker 时可跑部分单测：`mvn test -Dtest=KnowledgeServiceImplTest`
-- **CI**：推送至 `main` 时 GitHub Actions 执行 `mvn test`（见 `.github/workflows/ci.yml`）。
+- **全量**：`mvn test`（需 **Docker**：Testcontainers 起 Postgres + Redis）。
+- **CI**：`.github/workflows/ci.yml` 在推送时跑 `mvn test`。
 
 ---
 
-## 发布标签
+## 技术栈
 
-已发布 **`v0.1-mvp`**。若需在新提交上重建标签：
+Spring Boot 3、Spring AI Alibaba（DashScope）、PostgreSQL + pgvector、Redis、Spring Security + JWT、Bucket4j、Flyway、Docker Compose、Testcontainers。
 
-```bash
-git tag -a v0.1-mvp -m "MVP: RAG + SSE + JWT + Compose + 前端"
-git push origin v0.1-mvp
-```
-
-（若远程已存在同名标签，需先 `git tag -d v0.1-mvp` 与远端协调后再打。）
+版本号以 `pom.xml` 为准。
