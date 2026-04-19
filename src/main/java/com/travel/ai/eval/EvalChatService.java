@@ -13,7 +13,7 @@ import com.travel.ai.eval.dto.EvalStreamingCapability;
 import com.travel.ai.eval.dto.EvalToolsCapability;
 import com.travel.ai.config.AppAgentProperties;
 import com.travel.ai.config.AppEvalProperties;
-import com.travel.ai.eval.planrepair.EvalPlanParseCoordinator;
+import com.travel.ai.plan.PlanParseCoordinator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -38,7 +38,7 @@ import static com.travel.ai.eval.EvalRagGateScenarios.Kind;
 /**
  * 评测聊天：Day2 起在 {@link #buildStubResponse(EvalChatRequest)} 内挂载
  * {@link EvalLinearAgentPipeline}，输出 {@code meta.stage_order} / {@code step_count} / {@code replan_count}；
- * Day5 起对非空 query 执行 {@link EvalPlanParseCoordinator}（repair once + {@code plan_parse_attempts/outcome}）；
+ * Day5 起对非空 query 执行 {@link PlanParseCoordinator}（repair once + {@code plan_parse_attempts/outcome}）；
  * Day6 起在 TOOL 阶段串行执行 {@link EvalToolStageRunner}（超时/失败降级 + {@code tool} / {@code meta.tool_*} / {@code error_code}）。
  * Day7 起支持 {@link EvalRagGateScenarios}：空命中/低置信门控（P0 不启用 score 阈值），{@code meta.low_confidence} + {@code meta.low_confidence_reasons[]}。
  * Day9 起在 plan 解析成功后执行 {@link EvalQuerySafetyPolicy}：对抗/敏感句式稳定 {@code deny} 或 {@code clarify}，归因见 {@link EvalSafetyErrorCodes}。
@@ -54,7 +54,7 @@ public class EvalChatService {
     /** 与主线 SSE {@code TravelAgent} 总超时提示对齐的评测归因码。 */
     public static final String ERROR_CODE_AGENT_TOTAL_TIMEOUT = "AGENT_TOTAL_TIMEOUT";
 
-    private final EvalPlanParseCoordinator planParseCoordinator;
+    private final PlanParseCoordinator planParseCoordinator;
     private final EvalToolStageRunner evalToolStageRunner;
     private final ObjectProvider<com.travel.ai.agent.QueryRewriter> queryRewriter;
     private final ObjectProvider<VectorStore> vectorStore;
@@ -62,7 +62,7 @@ public class EvalChatService {
     private final AppEvalProperties appEvalProperties;
 
     public EvalChatService(
-            EvalPlanParseCoordinator planParseCoordinator,
+            PlanParseCoordinator planParseCoordinator,
             EvalToolStageRunner evalToolStageRunner,
             ObjectProvider<com.travel.ai.agent.QueryRewriter> queryRewriter,
             ObjectProvider<VectorStore> vectorStore,
@@ -236,7 +236,7 @@ public class EvalChatService {
             response.setSources(evidence.sources);
         }
 
-        EvalPlanParseCoordinator.Result parseResult = planParseCoordinator.parseWithOptionalRepair(request.getPlanRaw());
+        PlanParseCoordinator.Result parseResult = planParseCoordinator.parseWithOptionalRepair(request.getPlanRaw());
         meta.setPlanParseAttempts(parseResult.attempts());
         meta.setPlanParseOutcome(parseResult.outcome());
 

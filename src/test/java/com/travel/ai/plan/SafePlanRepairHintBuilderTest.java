@@ -1,7 +1,6 @@
-package com.travel.ai.eval.planrepair;
+package com.travel.ai.plan;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.travel.ai.plan.PlanParseException;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;

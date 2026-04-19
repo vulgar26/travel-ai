@@ -1,4 +1,4 @@
-package com.travel.ai.eval.planrepair;
+package com.travel.ai.plan;
 
 /**
  * 修复提示中的单条违规描述（结构化摘要，不含业务原文）。

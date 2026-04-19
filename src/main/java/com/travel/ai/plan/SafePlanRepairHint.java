@@ -1,4 +1,4 @@
-package com.travel.ai.eval.planrepair;
+package com.travel.ai.plan;
 
 import java.util.List;
 

@@ -4,6 +4,7 @@ import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
 import com.travel.ai.agent.guard.RetrieveEmptyHitGate;
 import com.travel.ai.agent.plan.MainLinePlanProposer;
 import com.travel.ai.config.AppAgentProperties;
+import com.travel.ai.plan.PlanParseCoordinator;
 import com.travel.ai.config.RedisChatMemory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,6 +67,7 @@ public class TravelAgent {
     private final com.travel.ai.tools.ToolCircuitBreaker toolCircuitBreaker;
     private final com.travel.ai.tools.ToolRateLimiter toolRateLimiter;
     private final MainLinePlanProposer mainLinePlanProposer;
+    private final PlanParseCoordinator planParseCoordinator;
     private final AppAgentProperties appAgentProperties;
 
     @Value("${app.tools.weather.enabled:true}")
@@ -103,6 +105,7 @@ public class TravelAgent {
                        com.travel.ai.tools.ToolCircuitBreaker toolCircuitBreaker,
                        com.travel.ai.tools.ToolRateLimiter toolRateLimiter,
                        MainLinePlanProposer mainLinePlanProposer,
+                       PlanParseCoordinator planParseCoordinator,
                        AppAgentProperties appAgentProperties) {
         this.chatMemory = chatMemory;
         this.vectorStore = vectorStore;
@@ -111,6 +114,7 @@ public class TravelAgent {
         this.toolCircuitBreaker = toolCircuitBreaker;
         this.toolRateLimiter = toolRateLimiter;
         this.mainLinePlanProposer = mainLinePlanProposer;
+        this.planParseCoordinator = planParseCoordinator;
         this.appAgentProperties = appAgentProperties;
         this.chatClient = builder
                 .defaultSystem(SYSTEM_PROMPT)
@@ -223,7 +227,8 @@ public class TravelAgent {
 
     /**
      * PLAN：调用 {@link MainLinePlanProposer} 产出结构化 Plan JSON（与后续 RETRIEVE/TOOL 并行写入 prompt）；
-     * {@code app.agent.plan-stage.enabled=false} 或模型失败时使用本地降级 JSON，仍保证管线可观测与下游一致形状。
+     * {@code app.agent.plan-stage.enabled=false} 或模型失败时使用本地降级 JSON；最后经 {@link PlanParseCoordinator}
+     * 做附录 E 校验与至多一次 repair（与评测路径一致），仍失败则再降级为内置合法 JSON。
      */
     private void stagePlan(MainAgentTurnContext ctx) {
         long t0 = System.nanoTime();
@@ -240,11 +245,55 @@ public class TravelAgent {
             ctx.planJson = fallbackPlanJson("plan_stage_disabled");
             log.info("[stage] PLAN source=config_disabled requestId={}", ctx.requestId);
         }
+        enforceAppendixEPlanOrFallback(ctx);
         logStageBoundary("PLAN", t0, ctx.requestId);
     }
 
+    /**
+     * 附录 E：与评测一致经 {@link PlanParseCoordinator}（parse + 至多一次 repair）得到可注入的 plan 文本；
+     * 仍失败则降级 {@link #fallbackPlanJson}，再失败则用 {@link PlanParseCoordinator#DEFAULT_EVAL_PLAN_JSON}。
+     */
+    private void enforceAppendixEPlanOrFallback(MainAgentTurnContext ctx) {
+        PlanParseCoordinator.Result first = planParseCoordinator.parseWithOptionalRepair(ctx.planJson);
+        if (!first.failed()) {
+            ctx.planJson = first.effectivePlanJson();
+            return;
+        }
+        log.warn("[stage] PLAN plan_parse_failed_after_repair requestId={} last={}",
+                ctx.requestId,
+                first.lastFailure() != null ? first.lastFailure().getMessage() : "");
+        PlanParseCoordinator.Result second = planParseCoordinator.parseWithOptionalRepair(fallbackPlanJson("plan_parse_rejected"));
+        if (!second.failed()) {
+            ctx.planJson = second.effectivePlanJson();
+            return;
+        }
+        String minimal = PlanParseCoordinator.DEFAULT_EVAL_PLAN_JSON.trim().replaceAll("\\s+", " ");
+        PlanParseCoordinator.Result third = planParseCoordinator.parseWithOptionalRepair(minimal);
+        if (!third.failed()) {
+            ctx.planJson = third.effectivePlanJson();
+            return;
+        }
+        throw new IllegalStateException("builtin default plan must parse");
+    }
+
+    private static String jsonEscapeForNotes(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", " ");
+    }
+
+    /** 附录 E 兼容降级：两阶段 RETRIEVE→WRITE，constraints 与 {@link PlanParser} 校验一致。 */
     private static String fallbackPlanJson(String rationale) {
-        return "{\"intent\":\"（配置或降级）\",\"steps\":[\"RETRIEVE\",\"WRITE\"],\"rationale\":\"" + rationale + "\"}";
+        String n = jsonEscapeForNotes(rationale);
+        return "{\"plan_version\":\"v1\",\"goal\":\"（配置或降级）\","
+                + "\"steps\":["
+                + "{\"step_id\":\"fb1\",\"stage\":\"RETRIEVE\",\"instruction\":\"检索与用户问题相关的知识片段。\"},"
+                + "{\"step_id\":\"fb2\",\"stage\":\"WRITE\",\"instruction\":\"基于检索结果与工具观察生成回答。\"}"
+                + "],"
+                + "\"constraints\":{\"max_steps\":8,\"total_timeout_ms\":120000,\"tool_timeout_ms\":3000},"
+                + "\"notes\":\"" + n + "\""
+                + "}";
     }
 
     /**

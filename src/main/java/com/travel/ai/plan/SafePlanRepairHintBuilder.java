@@ -1,7 +1,6 @@
-package com.travel.ai.eval.planrepair;
+package com.travel.ai.plan;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.travel.ai.plan.PlanParseException;
 
 import java.util.List;
 
