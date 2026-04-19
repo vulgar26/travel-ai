@@ -12,11 +12,11 @@ import com.travel.ai.eval.dto.EvalRetrievalCapability;
 import com.travel.ai.eval.dto.EvalStreamingCapability;
 import com.travel.ai.eval.dto.EvalToolsCapability;
 import com.travel.ai.config.AppAgentProperties;
+import com.travel.ai.config.AppEvalProperties;
 import com.travel.ai.eval.planrepair.EvalPlanParseCoordinator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
@@ -59,26 +59,22 @@ public class EvalChatService {
     private final ObjectProvider<com.travel.ai.agent.QueryRewriter> queryRewriter;
     private final ObjectProvider<VectorStore> vectorStore;
     private final AppAgentProperties appAgentProperties;
-
-    /**
-     * 仅用于测试：在进入评测 stub 主路径后阻塞指定毫秒，以验证 {@link com.travel.ai.eval.EvalChatController} 整段
-     * {@code app.agent.total-timeout}。生产须为 {@code 0}（默认）。
-     */
-    @Value("${app.eval.stub-work-sleep-ms:0}")
-    private long evalStubWorkSleepMs;
+    private final AppEvalProperties appEvalProperties;
 
     public EvalChatService(
             EvalPlanParseCoordinator planParseCoordinator,
             EvalToolStageRunner evalToolStageRunner,
             ObjectProvider<com.travel.ai.agent.QueryRewriter> queryRewriter,
             ObjectProvider<VectorStore> vectorStore,
-            AppAgentProperties appAgentProperties
+            AppAgentProperties appAgentProperties,
+            AppEvalProperties appEvalProperties
     ) {
         this.planParseCoordinator = planParseCoordinator;
         this.evalToolStageRunner = evalToolStageRunner;
         this.queryRewriter = queryRewriter;
         this.vectorStore = vectorStore;
         this.appAgentProperties = appAgentProperties;
+        this.appEvalProperties = appEvalProperties;
     }
 
     /**
@@ -140,11 +136,12 @@ public class EvalChatService {
     }
 
     private void maybeStubWorkSleepForTests(String requestId) {
-        if (evalStubWorkSleepMs <= 0) {
+        long ms = appEvalProperties.getStubWorkSleepMs();
+        if (ms <= 0) {
             return;
         }
         try {
-            Thread.sleep(evalStubWorkSleepMs);
+            Thread.sleep(ms);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.debug("[eval] stub-work-sleep interrupted request_id={}", requestId);

@@ -1,8 +1,8 @@
 package com.travel.ai.eval;
 
 import com.travel.ai.config.AppAgentProperties;
+import com.travel.ai.config.AppEvalProperties;
 import com.travel.ai.eval.dto.EvalChatRequest;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.Locale;
@@ -21,7 +21,7 @@ import java.util.concurrent.TimeoutException;
  * 这里的“熔断/限流/截断”场景是为了把 meta 字段跑通（可回归、可分桶），不依赖真实外部工具。
  * <p>
  * {@code eval_tool_scenario=timeout} 的等待上限取 {@code min(app.eval.tool-timeout-ms, app.agent.tool-timeout)}（毫秒），
- * 与主线工具 HTTP 超时同一真源上沿对齐，避免评测 stub 与产品配置语义漂移。
+ * 由 {@link AppEvalProperties} 与 {@link AppAgentProperties} 绑定；与主线工具 HTTP 超时对齐，避免评测 stub 与产品配置语义漂移。
  */
 @Component
 public class EvalToolStageRunner {
@@ -40,14 +40,11 @@ public class EvalToolStageRunner {
     public static final String ERROR_CODE_TOOL_DISABLED_BY_CIRCUIT_BREAKER = "TOOL_DISABLED_BY_CIRCUIT_BREAKER";
     public static final String ERROR_CODE_RATE_LIMITED = "RATE_LIMITED";
 
-    private final long evalToolTimeoutMsRaw;
+    private final AppEvalProperties appEvalProperties;
     private final AppAgentProperties appAgentProperties;
 
-    public EvalToolStageRunner(
-            @Value("${app.eval.tool-timeout-ms:100}") long evalToolTimeoutMsRaw,
-            AppAgentProperties appAgentProperties
-    ) {
-        this.evalToolTimeoutMsRaw = evalToolTimeoutMsRaw;
+    public EvalToolStageRunner(AppEvalProperties appEvalProperties, AppAgentProperties appAgentProperties) {
+        this.appEvalProperties = appEvalProperties;
         this.appAgentProperties = appAgentProperties;
     }
 
@@ -55,7 +52,7 @@ public class EvalToolStageRunner {
      * 评测 stub 的 TOOL 等待上限（毫秒）：{@code min( max(20, app.eval.tool-timeout-ms), max(20, app.agent.tool-timeout) )}。
      */
     long effectiveToolDeadlineMs() {
-        long evalCapped = Math.max(20L, evalToolTimeoutMsRaw);
+        long evalCapped = Math.max(20L, appEvalProperties.getToolTimeoutMs());
         long agentMs = Math.max(20L, appAgentProperties.getToolTimeout().toMillis());
         return Math.min(evalCapped, agentMs);
     }

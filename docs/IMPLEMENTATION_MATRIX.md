@@ -30,7 +30,7 @@
 | 评测 stub 管线阶段顺序与主线一致 | **已满足**：**`PLAN→RETRIEVE→TOOL→GUARD→WRITE`**（`EvalLinearAgentPipeline` / `EvalChatService` / `meta.stage_order`） | `EvalLinearAgentPipeline.java`、`EvalChatService.java` |
 | Plan 解析 repair once、`plan_parse_attempts/outcome` | **已满足**（评测路径） | `EvalPlanParseCoordinator`、`PlanParser` |
 | E7 membership、`X-Eval-*` HMAC | **已满足** | `RetrievalMembershipHasher.java`、`EvalMembershipHttpContext.java` |
-| 评测 HTTP 网关（文档外增量） | **已满足**：`X-Eval-Gateway-Key` ↔ `app.eval.gateway-key`，未配置则评测路径 401 | `EvalGatewayAuthFilter.java`、`SecurityConfig.java` |
+| 评测 HTTP 网关（文档外增量） | **已满足**：`X-Eval-Gateway-Key` ↔ `app.eval.gateway-key`（`AppEvalProperties`），未配置则评测路径 401 | `AppEvalProperties.java`、`EvalGatewayAuthFilter.java`、`SecurityConfig.java` |
 | `meta.low_confidence` + **`low_confidence_reasons`**（对外 JSON） | **已满足** | `EvalChatMeta.java`、`EvalChatService.java` |
 | RAG stub、`eval_rag_scenario` | **已满足** | `EvalRagGateScenarios.java` |
 | TOOL stub、`eval_tool_scenario` | **已满足** | `EvalToolStageRunner.java` |
@@ -63,7 +63,7 @@
 
 ## 5. 建议的下一步（与外部计划对齐的优先级）
 
-1. **配置收口（续）**：其它阶段 stub 的 deadline 与 `AppAgentProperties` / `app.eval.*` 继续对齐（整段 `total-timeout` 已接）。  
+1. **配置收口（续）**：`app.eval.*` 已收口为 **`AppEvalProperties`**（网关密钥、`tool-timeout-ms`、`stub-work-sleep-ms`）；TOOL stub deadline 仍与 `AppAgentProperties` 取 min；整段 `total-timeout` 已接。  
 2. **阶段顺序**：SSOT 为 **`…GUARD→WRITE`**；若将来调整 SSE 编排，须同步 `EvalLinearAgentPipeline`、`EvalChatService` 中手工 `stage_order` 与契约测试。  
 3. **可选**：将 Vagent 侧 `travel-ai-upgrade.md` 的「评测对接」小节补充 **`X-Eval-Gateway-Key`**，与本仓一致。  
 4. **P0-2 加深**：主线 Plan schema 与评测 `PlanV1` 对齐程度、repair 路径是否复用评测协调器。

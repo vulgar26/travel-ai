@@ -4,7 +4,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.beans.factory.annotation.Value;
+import com.travel.ai.config.AppEvalProperties;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -31,8 +31,11 @@ public class EvalGatewayAuthFilter extends OncePerRequestFilter {
 
     private static final String HEADER = "X-Eval-Gateway-Key";
 
-    @Value("${app.eval.gateway-key:}")
-    private String expectedGatewayKey;
+    private final AppEvalProperties appEvalProperties;
+
+    public EvalGatewayAuthFilter(AppEvalProperties appEvalProperties) {
+        this.appEvalProperties = appEvalProperties;
+    }
 
     @Override
     protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
@@ -46,7 +49,8 @@ public class EvalGatewayAuthFilter extends OncePerRequestFilter {
             @NonNull HttpServletResponse response,
             @NonNull FilterChain filterChain
     ) throws ServletException, IOException {
-        if (expectedGatewayKey == null || expectedGatewayKey.isBlank()) {
+        String expectedGatewayKey = appEvalProperties.getGatewayKey();
+        if (expectedGatewayKey.isBlank()) {
             writeJson(response, HttpServletResponse.SC_UNAUTHORIZED, "EVAL_GATEWAY_NOT_CONFIGURED",
                     "Set app.eval.gateway-key or environment APP_EVAL_GATEWAY_KEY.");
             return;
