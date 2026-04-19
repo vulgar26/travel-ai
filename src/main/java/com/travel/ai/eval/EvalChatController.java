@@ -1,13 +1,22 @@
 package com.travel.ai.eval;
 
+import com.travel.ai.config.AppAgentProperties;
 import com.travel.ai.eval.dto.EvalChatRequest;
 import com.travel.ai.eval.dto.EvalChatResponse;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * 评测专用入口（P0）：{@code POST /api/v1/eval/chat}，<strong>非流式</strong>、一次性 JSON 返回。
@@ -82,15 +91,28 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <h2>Day10：C 线 P0 收敛</h2>
  * <p>见仓库 {@code docs/DAY10_P0_CLOSURE.md}：{@code pass_rate} / report 引用、剩余 regressions、修复策略与风险、门控定义。</p>
+ *
+ * <h2>整段墙钟上限</h2>
+ * <p>本入口在独立线程执行 {@link EvalChatService#buildStubResponse}，并以 {@code app.agent.total-timeout} 作为
+ * {@code Future#get} 上限；超时返回 {@code behavior=clarify}、{@code error_code=AGENT_TOTAL_TIMEOUT}，且
+ * {@code meta.agent_latency_budget_exceeded=true}（见 {@link EvalChatService#buildTotalTimeoutStubResponse}）。</p>
  */
 @RestController
 @RequestMapping("/api/v1/eval")
 public class EvalChatController {
 
     private final EvalChatService evalChatService;
+    private final AppAgentProperties appAgentProperties;
+    private final ThreadPoolTaskExecutor evalChatTimeoutExecutor;
 
-    public EvalChatController(EvalChatService evalChatService) {
+    public EvalChatController(
+            EvalChatService evalChatService,
+            AppAgentProperties appAgentProperties,
+            @Qualifier("evalChatTimeoutExecutor") ThreadPoolTaskExecutor evalChatTimeoutExecutor
+    ) {
         this.evalChatService = evalChatService;
+        this.appAgentProperties = appAgentProperties;
+        this.evalChatTimeoutExecutor = evalChatTimeoutExecutor;
     }
 
     /**
@@ -109,8 +131,36 @@ public class EvalChatController {
         long startMs = System.currentTimeMillis();
         EvalMembershipHttpContext membershipCtx = EvalMembershipHttpContext.fromHeaders(
                 xEvalToken, xEvalTargetId, xEvalDatasetId, xEvalCaseId);
+        Duration totalBudget = appAgentProperties.getTotalTimeout();
+        long limitMs = Math.max(1L, totalBudget.toMillis());
+
+        CompletableFuture<EvalChatResponse> future = CompletableFuture.supplyAsync(
+                () -> evalChatService.buildStubResponse(request, xEvalMembershipTopN, membershipCtx),
+                evalChatTimeoutExecutor
+        );
+
+        EvalChatResponse body;
+        try {
+            body = future.get(limitMs, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            body = evalChatService.buildTotalTimeoutStubResponse(request, membershipCtx);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            future.cancel(true);
+            body = evalChatService.buildTotalTimeoutStubResponse(request, membershipCtx);
+        } catch (ExecutionException e) {
+            Throwable c = e.getCause();
+            if (c instanceof RuntimeException re) {
+                throw re;
+            }
+            if (c instanceof Error err) {
+                throw err;
+            }
+            throw new IllegalStateException(c);
+        }
+
         // 先走同一套 meta/capabilities 拼装，保证契约字段始终齐全；空 query 仅覆盖 answer/behavior。
-        EvalChatResponse body = evalChatService.buildStubResponse(request, xEvalMembershipTopN, membershipCtx);
         if (request.getQuery() == null || request.getQuery().isBlank()) {
             body.setAnswer("请求体缺少非空字段 query。");
             body.setBehavior("clarify");

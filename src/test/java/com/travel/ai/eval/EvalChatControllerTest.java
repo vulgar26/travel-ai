@@ -54,7 +54,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc(addFilters = false)
 @TestPropertySource(properties = "app.eval.tool-timeout-ms=50")
 @EnableConfigurationProperties(AppAgentProperties.class)
-@Import({EvalChatService.class, EvalPlanParseCoordinator.class, PlanParser.class, EvalToolStageRunner.class, EvalChatControllerTestConfig.class})
+@Import({
+        EvalChatService.class,
+        EvalPlanParseCoordinator.class,
+        PlanParser.class,
+        EvalToolStageRunner.class,
+        EvalChatControllerTestConfig.class,
+        EvalChatTimeoutExecutorConfig.class
+})
 class EvalChatControllerTest {
 
     private static final Configuration JSONPATH_LENIENT = Configuration.builder()

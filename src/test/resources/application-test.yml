@@ -10,6 +10,7 @@ app:
       secret: test-jwt-secret-must-be-at-least-32-chars-long
   eval:
     gateway-key: it-eval-gateway-key
+    stub-work-sleep-ms: 0
   agent:
     plan-stage:
       enabled: false

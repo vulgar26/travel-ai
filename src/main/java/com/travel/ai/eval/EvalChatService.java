@@ -11,8 +11,12 @@ import com.travel.ai.eval.dto.EvalGuardrailsCapability;
 import com.travel.ai.eval.dto.EvalRetrievalCapability;
 import com.travel.ai.eval.dto.EvalStreamingCapability;
 import com.travel.ai.eval.dto.EvalToolsCapability;
+import com.travel.ai.config.AppAgentProperties;
 import com.travel.ai.eval.planrepair.EvalPlanParseCoordinator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
@@ -45,21 +49,106 @@ import static com.travel.ai.eval.EvalRagGateScenarios.Kind;
 @Service
 public class EvalChatService {
 
+    private static final Logger log = LoggerFactory.getLogger(EvalChatService.class);
+
+    /** 与主线 SSE {@code TravelAgent} 总超时提示对齐的评测归因码。 */
+    public static final String ERROR_CODE_AGENT_TOTAL_TIMEOUT = "AGENT_TOTAL_TIMEOUT";
+
     private final EvalPlanParseCoordinator planParseCoordinator;
     private final EvalToolStageRunner evalToolStageRunner;
     private final ObjectProvider<com.travel.ai.agent.QueryRewriter> queryRewriter;
     private final ObjectProvider<VectorStore> vectorStore;
+    private final AppAgentProperties appAgentProperties;
+
+    /**
+     * 仅用于测试：在进入评测 stub 主路径后阻塞指定毫秒，以验证 {@link com.travel.ai.eval.EvalChatController} 整段
+     * {@code app.agent.total-timeout}。生产须为 {@code 0}（默认）。
+     */
+    @Value("${app.eval.stub-work-sleep-ms:0}")
+    private long evalStubWorkSleepMs;
 
     public EvalChatService(
             EvalPlanParseCoordinator planParseCoordinator,
             EvalToolStageRunner evalToolStageRunner,
             ObjectProvider<com.travel.ai.agent.QueryRewriter> queryRewriter,
-            ObjectProvider<VectorStore> vectorStore
+            ObjectProvider<VectorStore> vectorStore,
+            AppAgentProperties appAgentProperties
     ) {
         this.planParseCoordinator = planParseCoordinator;
         this.evalToolStageRunner = evalToolStageRunner;
         this.queryRewriter = queryRewriter;
         this.vectorStore = vectorStore;
+        this.appAgentProperties = appAgentProperties;
+    }
+
+    /**
+     * 将 {@code latency_ms} 与 {@link EvalChatMeta#getAgentTotalTimeoutMs()} 比较，写入 {@code agent_latency_budget_exceeded}。
+     */
+    public void applyLatencyBudgetToMeta(EvalChatResponse response, long latencyMs) {
+        EvalChatMeta meta = response != null ? response.getMeta() : null;
+        if (meta == null) {
+            return;
+        }
+        Long budget = meta.getAgentTotalTimeoutMs();
+        if (budget == null || budget <= 0) {
+            return;
+        }
+        boolean exceeded = latencyMs > budget;
+        meta.setAgentLatencyBudgetExceeded(exceeded);
+        if (exceeded) {
+            log.warn("[eval] agent_latency_budget_exceeded latency_ms={} agent_total_timeout_ms={} request_id={}",
+                    latencyMs, budget, meta.getRequestId());
+        }
+    }
+
+    /**
+     * 评测整段 {@code app.agent.total-timeout} 触发时返回的轻量响应（不跑检索 / plan / 工具）。
+     */
+    public EvalChatResponse buildTotalTimeoutStubResponse(EvalChatRequest request, EvalMembershipHttpContext membershipCtx) {
+        String mode = request.getMode();
+        if (mode == null || mode.isBlank()) {
+            mode = "EVAL";
+        }
+        String requestId = UUID.randomUUID().toString();
+        EvalChatMeta meta = new EvalChatMeta(mode, requestId);
+        meta.setReplanCount(EvalChatMeta.P0_REPLAN_COUNT);
+        stampAgentTimeoutsOnMeta(meta);
+        meta.setStageOrder(Collections.emptyList());
+        meta.setStepCount(0);
+        meta.setAgentLatencyBudgetExceeded(true);
+
+        EvalCapabilities capabilities = new EvalCapabilities(
+                new EvalRetrievalCapability(true, false),
+                new EvalToolsCapability(true, true),
+                new EvalStreamingCapability(false),
+                new EvalGuardrailsCapability(false, false, false)
+        );
+        EvalChatResponse response = new EvalChatResponse();
+        response.setCapabilities(capabilities);
+        response.setMeta(meta);
+        response.setBehavior("clarify");
+        response.setErrorCode(ERROR_CODE_AGENT_TOTAL_TIMEOUT);
+        response.setAnswer("本轮评测请求处理超时（已达 app.agent.total-timeout），请缩短输入或稍后重试。");
+        return finalizeResponse(response, membershipCtx, new Evidence(List.of(), List.of(), 0, 0));
+    }
+
+    private void stampAgentTimeoutsOnMeta(EvalChatMeta meta) {
+        meta.setAgentTotalTimeoutMs(appAgentProperties.getTotalTimeout().toMillis());
+        meta.setAgentMaxStepsConfigured(appAgentProperties.getMaxSteps());
+        meta.setAgentToolTimeoutMs(appAgentProperties.getToolTimeout().toMillis());
+        meta.setAgentLlmStreamTimeoutMs(appAgentProperties.getLlmStreamTimeout().toMillis());
+    }
+
+    private void maybeStubWorkSleepForTests(String requestId) {
+        if (evalStubWorkSleepMs <= 0) {
+            return;
+        }
+        try {
+            Thread.sleep(evalStubWorkSleepMs);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.debug("[eval] stub-work-sleep interrupted request_id={}", requestId);
+        }
     }
 
     /**
@@ -97,6 +186,7 @@ public class EvalChatService {
 
         EvalChatMeta meta = new EvalChatMeta(mode, requestId);
         meta.setReplanCount(EvalChatMeta.P0_REPLAN_COUNT);
+        stampAgentTimeoutsOnMeta(meta);
 
         EvalCapabilities capabilities = new EvalCapabilities(
                 new EvalRetrievalCapability(true, false),
@@ -116,6 +206,8 @@ public class EvalChatService {
             response.setBehavior("answer");
             return response;
         }
+
+        maybeStubWorkSleepForTests(requestId);
 
         // P0+ S2：检索前 SafetyGate（normalize + 可归因 rule_id），命中则直接短路返回。
         Optional<EvalChatSafetyGate.Decision> gate = EvalChatSafetyGate.evaluate(request.getQuery());
