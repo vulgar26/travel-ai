@@ -89,7 +89,7 @@ npm run dev
 |------|------|------|------|
 | `POST` | `/auth/login` | 否 | JSON 用户名密码，返回 JWT |
 | `POST` | `/travel/conversations` | Bearer JWT | 服务端生成并登记 `conversationId`，JSON：`{"conversationId":"..."}` |
-| `POST` | `/knowledge/upload` | Bearer JWT | `multipart/form-data`，字段 `file` |
+| `POST` | `/knowledge/upload` | Bearer JWT | `multipart/form-data`，字段 `file`；**JSON** 响应：`200` 时 `ok`、`fileName`、`chunkCount`、`message`；`4xx/5xx` 时 `error` + `message`（与限流 429 的 `code` 字段不同，见下表注） |
 | `GET` | `/travel/profile` | Bearer JWT | 长期画像 JSON：`schemaVersion` + `profile`（对象；无记录时为空对象） |
 | `PUT` | `/travel/profile` | Bearer JWT | 请求体 `{"profile":{...}}` 整包替换（顶层仅字符串/数字/布尔；槽位与长度见 `app.memory.profile.*`） |
 | `PATCH` | `/travel/profile` | Bearer JWT | 请求体 `{"profile":{...}}` 浅合并；字段置 `null` 表示删除该键 |

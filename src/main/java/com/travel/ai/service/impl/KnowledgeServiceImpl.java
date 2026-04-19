@@ -1,5 +1,6 @@
 package com.travel.ai.service.impl;
 
+import com.travel.ai.dto.KnowledgeUploadResult;
 import com.travel.ai.service.KnowledgeService;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
@@ -30,7 +31,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     }
 
     @Override
-    public String uploadDocument(MultipartFile file) throws IOException {
+    public KnowledgeUploadResult uploadDocument(MultipartFile file) throws IOException {
         String filename = file.getOriginalFilename();
 
         if (filename == null) {
@@ -80,6 +81,6 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         vectorStore.add(chunks);
         log.info("入库完成：{}", filename);
 
-        return String.format("文档[%s]上传成功，共%d个知识块", filename, chunks.size());
+        return new KnowledgeUploadResult(filename, chunks.size());
     }
 }

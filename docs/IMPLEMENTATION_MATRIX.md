@@ -75,6 +75,6 @@
 **当前推荐执行顺序**：
 
 1. ~~**长期记忆与隐私治理**（`user_profile`、删除权、可选 prompt 注入）~~：**已收口（基线）**；后续可选：自动摘要写入（须用户确认）、更细 retention。  
-2. **工程债**：部分接口错误体统一 JSON、`docs/UPGRADE_PLAN.md` 中尚未收口项。
+2. ~~**工程债（错误体）**~~：**部分收口**：`/knowledge/upload` 成功/校验失败/IO 失败均为 `application/json`；multipart 缺文件、超上限由 `KnowledgeControllerAdvice` 返回 JSON。其余 UPGRADE_PLAN 条目仍见该文件逐项推进。
 
 **维护提醒**：若调整 SSE 线性阶段顺序，须同步 `EvalLinearAgentPipeline`、`EvalChatService` 中手工 `stage_order` 与相关契约测试。  

@@ -44,6 +44,8 @@ curl.exe -X POST "http://localhost:8081/knowledge/upload" `
   -F "file=@test.txt"
 ```
 
+成功时响应为 **JSON**（`ok`、`fileName`、`chunkCount`、`message`）；校验失败时为 `error` + `message`。
+
 ## 5. 发起 SSE 对话（流式输出）
 
 ```powershell

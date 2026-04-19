@@ -33,7 +33,7 @@ Spring Boot 3 + Spring AI（DashScope）的 **出行规划演示后端**：**JWT
 ## 已知差距 / 风险（仍有效）
 
 - **`conversationId`**：已支持服务端签发与 Redis 登记；生产可设 `app.conversation.require-registration=true` 强制先 `POST /travel/conversations` 再拉 SSE。  
-- **部分接口错误体**：上传等路径返回形态未必统一 JSON（见历史债）。  
+- **部分接口错误体**：`/knowledge/upload` 已统一为 JSON 成功/失败体；其它历史路径若仍返回非 JSON，可按需逐项收口。  
 - **长期记忆**：已实现画像存储、删除权与「从对话 LLM 抽取 → 默认待确认 → 显式 confirm」；**未**实现客户端内嵌式一键确认 UI 与复杂合规审计流。  
 - **阶段顺序**：评测 stub 与主线均为 `…TOOL→GUARD→WRITE`（详见 `IMPLEMENTATION_MATRIX.md`）。  
 - **未配置 `APP_EVAL_GATEWAY_KEY`** 时：评测路径全部 401（有意防误暴露）。

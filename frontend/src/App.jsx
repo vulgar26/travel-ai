@@ -127,7 +127,7 @@ export default function App() {
     }
   }, [token])
 
-  /** 与后端 KnowledgeController 一致：POST /knowledge/upload，表单字段 file，仅 .txt */
+  /** 与后端 KnowledgeController 一致：POST /knowledge/upload，表单字段 file，仅 .txt；响应为 JSON（message / error） */
   const uploadKnowledge = useCallback(async () => {
     setError('')
     setUploadHint('')
@@ -155,13 +155,20 @@ export default function App() {
         headers: { Authorization: `Bearer ${token}` },
         body: form,
       })
-      const text = await res.text()
+      const raw = await res.text()
+      let body
+      try {
+        body = JSON.parse(raw)
+      } catch {
+        body = { message: raw }
+      }
       if (!res.ok) {
-        setError(`上传失败 ${res.status}：${text}`)
+        const msg = body?.message || body?.error || raw
+        setError(`上传失败 ${res.status}：${msg}`)
         setStatus('')
         return
       }
-      setUploadHint(text)
+      setUploadHint(body?.message || raw)
       setStatus('上传完成')
       if (input) input.value = ''
     } catch (e) {

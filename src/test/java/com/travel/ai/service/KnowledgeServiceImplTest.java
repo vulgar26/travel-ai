@@ -56,7 +56,7 @@ class KnowledgeServiceImplTest {
                 text.getBytes(StandardCharsets.UTF_8)
         );
 
-        String result = service.uploadDocument(file);
+        var result = service.uploadDocument(file);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<Document>> captor = ArgumentCaptor.forClass(List.class);
@@ -65,7 +65,8 @@ class KnowledgeServiceImplTest {
         List<Document> chunks = captor.getValue();
         assertNotNull(chunks);
         assertFalse(chunks.isEmpty());
-        assertTrue(result.contains(String.valueOf(chunks.size())));
+        assertEquals(chunks.size(), result.chunkCount());
+        assertEquals("test.txt", result.fileName());
 
         // 与 SecurityContext 中用户名一致，保证向量检索可按 user_id 隔离
         assertEquals("demo", chunks.get(0).getMetadata().get("user_id"));
