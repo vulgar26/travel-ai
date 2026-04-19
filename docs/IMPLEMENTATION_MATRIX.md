@@ -65,5 +65,5 @@
 
 1. **配置收口（续）**：`app.eval.*` 已收口为 **`AppEvalProperties`**（网关密钥、`tool-timeout-ms`、`stub-work-sleep-ms`）；TOOL stub deadline 仍与 `AppAgentProperties` 取 min；整段 `total-timeout` 已接。  
 2. **阶段顺序**：SSOT 为 **`…GUARD→WRITE`**；若将来调整 SSE 编排，须同步 `EvalLinearAgentPipeline`、`EvalChatService` 中手工 `stage_order` 与契约测试。  
-3. **可选**：将 Vagent 侧 `travel-ai-upgrade.md` 的「评测对接」小节补充 **`X-Eval-Gateway-Key`**，与本仓一致。  
+3. **外部计划对齐**：`D:\Projects\Vagent\plans\travel-ai-upgrade.md` 已扩充 §「与 eval 的对接」：**`X-Eval-Gateway-Key`** / `APP_EVAL_GATEWAY_KEY`、`AGENT_TOTAL_TIMEOUT`、meta 超时对账、TOOL stub min 规则；并修正阶段顺序为 **`…GUARD→WRITE`** 的表述。  
 4. **P0-2 加深**：主线 Plan schema 与评测 `PlanV1` 对齐程度、repair 路径是否复用评测协调器。
