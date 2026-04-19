@@ -2,6 +2,8 @@
 
 本文档将此前评审中提出的缺口整理为**可分批执行**的升级路线：每项含背景、具体改法、涉及文件、验收标准与优先级。实施时建议按 **P0 → P1 → P2** 顺序推进，避免并行改动导致难以回归。
 
+**与 Vagent `travel-ai-upgrade.md` 及当前代码的逐项对照**（含「已实现 / 偏差 / 未做」）见 **[`docs/IMPLEMENTATION_MATRIX.md`](IMPLEMENTATION_MATRIX.md)**；本文件保留为评审清单，避免与矩阵重复维护同一表格。
+
 ---
 
 ## 0. 目标与原则
@@ -289,13 +291,14 @@
 
 ## 附录 B — 完成后自检清单
 
-- [ ] README / ARCHITECTURE / STATUS 中与限流、端口、密钥相关的描述已与代码一致  
-- [ ] 弱 JWT secret 在非本地环境不可启动（或等价强约束）  
-- [ ] `/auth/login` 具备限流且可配置  
-- [ ] `SecurityConfig` 默认「非白名单需认证」  
-- [ ] `QueryRewriter` 畸形输出有兜底；检索结果按 id 显式去重  
-- [ ] `KnowledgeServiceImplTest` 使用 mock 用户；存在至少一条 JWT 链路的集成测试  
-- [ ] 无用字段已从 `TravelAgent` / `TravelController` 移除  
+- [x] README / ARCHITECTURE / STATUS 中与限流、端口、密钥相关的描述已与代码一致（持续以 `IMPLEMENTATION_MATRIX` 为对照）  
+- [x] 弱 JWT secret：docker/prod/production profile 下 `JwtSecretStartupValidator` fail-fast（见 P0-2 改法 A）  
+- [x] `/auth/login` 具备限流且可配置（`RateLimitingFilter` + `app.rate-limit.login.*`）  
+- [x] `SecurityConfig` 默认「非白名单需认证」；评测路径另需 `X-Eval-Gateway-Key`  
+- [x] `QueryRewriter` 畸形输出有兜底；检索结果按 id 显式去重（`TravelAgent#mergeAndDedupeDocuments`）  
+- [ ] `KnowledgeServiceImplTest` 使用 mock 用户（见 P4-1）  
+- [x] 至少一条 JWT 链路与 eval 网关链路的集成测试（`TravelAiApplicationIntegrationTest`）  
+- [ ] 无用字段已从 `TravelAgent` / `TravelController` 移除（见 P5-1）  
 - [ ] （可选）聊天 POST 与 query 长度校验已上线并文档化  
 
 ---

@@ -3,6 +3,8 @@
 本文档将项目从「学习 / Demo」推进到**可写进简历、具备可讲清楚的亮点、并具备上线最小集（MVP）**的目标，给出**分阶段任务、验收标准、工时预估与风险**。  
 适用范围：当前技术栈（Spring Boot 3、Spring AI Alibaba、PostgreSQL + pgvector、Redis、SSE）。
 
+**工程上「已实现 / 未实现」的事实表**（与 Vagent `travel-ai-upgrade` 对照）以 **[`docs/IMPLEMENTATION_MATRIX.md`](IMPLEMENTATION_MATRIX.md)** 为准；本文档侧重产品叙事与工时，不逐条同步代码状态。
+
 ---
 
 ## 1. 文档目的与使用方式

@@ -51,7 +51,7 @@ eval 是独立系统没问题：**eval 负责产 run；harness 负责把 run 变
 ### 3.2 模板（交付给组长/周报复制用）
 
 - 周报模板：`docs/P0PLUS_S3_WEEKLY_REPORT_TEMPLATE.md`
-- 快速片段：`docs/P0PLUS_S3_WEEKLY_SNIPPET.md`
+- 周报可复制字段：[`docs/P0PLUS_S3_WEEKLY_REPORT_TEMPLATE.md`](P0PLUS_S3_WEEKLY_REPORT_TEMPLATE.md)（填 `run_id` 与指标后贴周报）
 
 ---
 

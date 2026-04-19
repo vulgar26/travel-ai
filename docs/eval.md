@@ -2,6 +2,12 @@
 
 用于定性观察：检索是否命中、回答是否引用知识库、以及 SSE 首包中的 **「引用片段」** 是否合理。
 
+## 与 `POST /api/v1/eval/chat` 的关系
+
+- **本页**：面向 **SSE 主产品** 的手工问题表。  
+- **评测批跑**：使用 **非流式** `POST /api/v1/eval/chat`；除业务头外还须 **`X-Eval-Gateway-Key`**（与 `APP_EVAL_GATEWAY_KEY` / `app.eval.gateway-key` 一致），以及 eval 侧契约要求的 **`X-Eval-Token`**、`X-Eval-Target-Id`、`X-Eval-Dataset-Id`、`X-Eval-Case-Id` 等（见 Vagent `eval-upgrade.md` E7）。  
+- **实现清单**：[`docs/IMPLEMENTATION_MATRIX.md`](IMPLEMENTATION_MATRIX.md)。
+
 填写说明：每次改 `TravelAgent` / 检索策略后，用同一套问题跑一遍，在「观察」列记 **命中条数 / 是否胡编 / 是否引用天气** 等。
 
 | # | 问题 | 期望（粗略） | 观察 |

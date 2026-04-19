@@ -1,0 +1,69 @@
+# 实现对照表（本仓代码 ↔ Vagent `travel-ai-upgrade.md`）
+
+**维护约定**：以 `src/main/java` 与 `application*.yml` 为真源；本文件随合入更新。**外部计划**路径：`D:\Projects\Vagent\plans\travel-ai-upgrade.md`（不在本仓库内，此处仅摘要对照）。
+
+**更新日期**：2026-04-19
+
+---
+
+## 1. 主线 `TravelAgent`（SSE `/travel/chat`）
+
+| `travel-ai-upgrade` 要点 | 本仓状态 | 代码 / 配置入口 |
+|--------------------------|----------|-----------------|
+| P0 固定线性阶段、禁止 DAG / 阶段 Map 驱动 | **已满足**：`runLinearStages` 固定调用 `stagePlan` → `stageRetrieve` → `stageTool` → `stageGuard`，无「阶段名→处理器」注册表 | `TravelAgent.java` |
+| 阶段顺序 `plan→retrieve→tool→write→guard`（文档写法） | **部分偏差**：实现顺序为 **`PLAN → RETRIEVE → TOOL → GUARD → WRITE`**（门控在流式写之前） | 同上 |
+| Plan-and-Execute：结构化 Plan JSON | **部分满足**：`MainLinePlanProposer` + 无记忆 `ChatClient`；`app.agent.plan-stage.enabled` 控制是否调 LLM；失败或关闭时用降级 JSON；**计划文本注入** `finalPromptForLlm`，**非**按 `steps` 跳过物理阶段 | `MainLinePlanProposer.java`、`MainLinePlanChatClientConfig.java`、`application.yml` |
+| `app.agent.max-steps` / `total-timeout` / `tool-timeout` 统一收口 | **未实现**：无上述配置键；LLM 流式为代码内 `Duration.ofSeconds(20)`；天气工具走 `ToolExecutor` 与 `weather.timeout-ms` | `TravelAgent.java`、`application.yml` |
+| 检索去重按业务 id | **已满足**：`mergeAndDedupeDocuments` | `TravelAgent.java` |
+| QueryRewriter 畸形兜底 | **已满足**：失败/空行回退与补齐、`max-line-length` | `QueryRewriter.java`、`app.rag.rewrite.max-line-length` |
+| 零命中门控 | **已满足**：`RetrieveEmptyHitGate` + `app.rag.empty-hits-behavior` | `RetrieveEmptyHitGate.java`、`TravelAgent.java` |
+| 串行工具、熔断、限流 | **已满足**：天气路径使用 `ToolExecutor` + `ToolCircuitBreaker` + `ToolRateLimiter` | `com.travel.ai.tools.*`、`WeatherTool.java` |
+
+---
+
+## 2. 评测口 `POST /api/v1/eval/chat`
+
+| `travel-ai-upgrade` / eval SSOT 要点 | 本仓状态 | 代码入口 |
+|----------------------------------------|----------|----------|
+| 非流式 JSON、snake_case、`latency_ms` | **已满足** | `EvalChatController.java`、`EvalChatResponse` DTO |
+| `meta.stage_order` / `step_count` / `replan_count` | **已满足**（`replan_count` 恒 0） | `EvalChatService.java`、`EvalLinearAgentPipeline.java` |
+| **注意**：评测 stub 管线阶段顺序为 **`PLAN→RETRIEVE→TOOL→WRITE→GUARD`**，与主线 `TravelAgent` **不一致** | 有意保留 Day2 契约；对齐主线顺序属后续改造项 | `EvalLinearAgentPipeline.java` |
+| Plan 解析 repair once、`plan_parse_attempts/outcome` | **已满足**（评测路径） | `EvalPlanParseCoordinator`、`PlanParser` |
+| E7 membership、`X-Eval-*` HMAC | **已满足** | `RetrievalMembershipHasher.java`、`EvalMembershipHttpContext.java` |
+| 评测 HTTP 网关（文档外增量） | **已满足**：`X-Eval-Gateway-Key` ↔ `app.eval.gateway-key`，未配置则评测路径 401 | `EvalGatewayAuthFilter.java`、`SecurityConfig.java` |
+| `meta.low_confidence` + **`low_confidence_reasons`**（对外 JSON） | **已满足** | `EvalChatMeta.java`、`EvalChatService.java` |
+| RAG stub、`eval_rag_scenario` | **已满足** | `EvalRagGateScenarios.java` |
+| TOOL stub、`eval_tool_scenario` | **已满足** | `EvalToolStageRunner.java` |
+| 输入安全门控（Day9） | **已满足** | `EvalChatSafetyGate.java`、`EvalQuerySafetyPolicy.java` |
+| `sources[]` 系统生成、非 LLM 编造 | **评测路径已构造** | `EvalChatService.java` |
+
+---
+
+## 3. 安全与限流（`UPGRADE_PLAN` / `travel-ai-upgrade` 交叉项）
+
+| 项 | 状态 | 入口 |
+|----|------|------|
+| 默认 `anyRequest().authenticated()` + 白名单 | **已满足** | `SecurityConfig.java` |
+| 登录 + 聊天分桶限流、可配置 | **已满足** | `RateLimitingFilter.java`、`app.rate-limit.*` |
+| JWT 弱密钥：docker/prod 等 profile **fail-fast** | **已满足** | `JwtSecretStartupValidator.java` |
+
+---
+
+## 4. 明确未做或仅部分覆盖（后续迭代）
+
+以下在 `travel-ai-upgrade.md` 中出现，但**本仓尚未**完整落地或仅局部存在：
+
+- **全局** `app.agent.total-timeout`、`app.agent.max-steps`、`app.agent.tool-timeout` 与降级矩阵配置化（与评测 `meta` 阈值统计对齐）。
+- **Reflection / recovery**（一次性反思）、`self_check` JSON、`meta.recovery_action`。
+- **长期记忆** `user_profile` / 保留期 / 删除权（文档 P0 整节隐私治理）。
+- **主线与评测**阶段顺序统一为同一枚举序列（当前 SSE 与 `EvalLinearAgentPipeline` 顺序不同）。
+- **按 plan `steps` 物理跳过阶段**：与当前 P0「固定五次调用」类注释一致，**未做**；若要做须改契约与测试（见 `TravelAgent` 类注释与外部计划 P0-1）。
+
+---
+
+## 5. 建议的下一步（与外部计划对齐的优先级）
+
+1. **配置收口**：引入 `app.agent.total-timeout`、`max-steps`、`tool-timeout`，`TravelAgent` 与评测超时统计读同一套值。  
+2. **阶段顺序对齐**：决定 SSOT 为 `…GUARD→WRITE` 或 `…WRITE→GUARD`，同步改 `EvalLinearAgentPipeline` 与文档。  
+3. **可选**：将 Vagent 侧 `travel-ai-upgrade.md` 的「评测对接」小节补充 **`X-Eval-Gateway-Key`**，与本仓一致。  
+4. **P0-2 加深**：主线 Plan schema 与评测 `PlanV1` 对齐程度、repair 路径是否复用评测协调器。

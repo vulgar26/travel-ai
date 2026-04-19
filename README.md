@@ -12,6 +12,7 @@
 
 | 项 | 说明 |
 | --- | --- |
+| 实现 ↔ 升级计划对照 | [`docs/IMPLEMENTATION_MATRIX.md`](docs/IMPLEMENTATION_MATRIX.md)（本仓代码 vs Vagent `travel-ai-upgrade`） |
 | 架构与可观测 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)（含 `[perf]` 分段耗时） |
 | 约 60 秒演示 | [`docs/demo.md`](docs/demo.md) |
 | 最小前端 | [`frontend/README.md`](frontend/README.md) |
@@ -85,6 +86,7 @@ flowchart LR
 | `SPRING_AI_DASHSCOPE_API_KEY` | 通义千问 API Key | 是 |
 | `APP_JWT_SECRET` | JWT 签名密钥（建议 ≥32 字节随机串） | 生产与 Compose 为是 |
 | `WEATHER_API_KEY` | 天气 API | 视是否启用天气功能 |
+| `APP_EVAL_GATEWAY_KEY` | 评测网关（`/api/v1/eval/**` 的 `X-Eval-Gateway-Key`）；也可写在 `application-local.yml` 的 `app.eval.gateway-key` | 与 vagent-eval 联调时为是 |
 
 ---
 
@@ -94,7 +96,8 @@ flowchart LR
 
 1. 准备本机 **PostgreSQL（含 pgvector）** 与 **Redis**，或在 `application-local.yml` 中指向可用实例。
 2. 设置 `SPRING_AI_DASHSCOPE_API_KEY`（及可选变量），或写入 `application-local.yml`。
-3. 运行主类 `TravelAiApplication`（默认端口 **8081**）。
+3. 与 **vagent-eval** 联调时：在 `application-local.yml` 配置 **`app.eval.gateway-key`**（或环境变量 **`APP_EVAL_GATEWAY_KEY`**），与 eval 侧 **`eval-gateway-key`** 一致；`application.yml` 已 **`optional:classpath:application-local.yml`**，有文件即自动合并。
+4. 运行主类 `TravelAiApplication`（默认端口 **8081**）。
 
 ### 方式二：Docker Compose（推荐）
 

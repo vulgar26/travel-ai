@@ -1,29 +1,31 @@
-# ARCHITECTURE — 最简链路说明（更新至 Week 4 · 可解释 RAG + 性能打点）
+# ARCHITECTURE — 最简链路说明（与代码同步）
 
-本项目的核心是“一条可解释的 RAG 链路”：**改写 → 检索 → 拼上下文 → 流式生成**，并在此基础上补齐了最小上线安全与可靠性（鉴权 / 会话隔离 / 限流 / 超时 / Actuator 探活 / SSE 心跳与断线感知）。
+本项目的核心是 **固定线性编排下的可解释 RAG + SSE**：在 `TravelAgent` 内按阶段推进（见 §1.1），并补齐鉴权、会话隔离、限流、超时、Actuator、SSE 心跳。**与 Vagent `travel-ai-upgrade.md` 的逐项对照**见 [`docs/IMPLEMENTATION_MATRIX.md`](IMPLEMENTATION_MATRIX.md)。
 
 ## 1. 请求链路（文本流程图）
 
 客户端请求（SSE，经鉴权与限流）  
 → `TravelController`：`GET /travel/chat/{conversationId}?query=...`  
 → `TravelAgent.chat(conversationId, userMessage)`  
-→ `QueryRewriter.rewrite(userMessage)`（生成 3 条检索 query）  
-→ `VectorStore.similaritySearch(...)`（对每条 query 检索 TopK，合并/去重/限制条数）  
-→ 拼接 `promptWithContext`（将检索文本注入到最终 prompt）  
-→ `ChatClient.prompt(promptWithContext)`（携带 `conversationId` 与当前用户作为 chat memory key）  
-→ 以 `Flux<ServerSentEvent<String>>` 形式 SSE 流式返回（正文为 `data`，空闲时 `comment` 心跳）给客户端
+→ **线性阶段**（同一 `requestId` 日志）：`PLAN`（结构化计划 JSON，可配置 LLM）→ `RETRIEVE`（`QueryRewriter` + `VectorStore` 多路检索、合并去重）→ `TOOL`（受控天气等）→ `GUARD`（零命中/无工具数据门控）→ `WRITE`（`ChatClient` 流式生成）  
+→ SSE：`引用片段` 首包 + 正文 `data` + `comment` 心跳
+
+### 1.1 与评测路径的差异（须知）
+
+- **评测** `POST /api/v1/eval/chat` 使用 `EvalLinearAgentPipeline` 记录的 **`PLAN→RETRIEVE→TOOL→WRITE→GUARD`** 顺序（Day2 契约 stub）。  
+- **主线 SSE** 为 **`…→TOOL→GUARD→WRITE`**。报表或文档对齐时不要混用。
 
 ## 2. 单链路约束（为什么要这样做）
 
-- 每次请求仅保留 **一套** “检索 + 上下文注入”逻辑，避免重复检索导致的成本与延迟不可控。
-- 检索到的文本必须进入最终 prompt（否则 RAG 只是“检索了但没用上”）。
+- 每次请求仅保留 **一套** 检索与上下文注入逻辑，避免重复检索导致的成本与延迟不可控。
+- 检索到的文本进入 `promptBase`；计划 JSON 与工具观察块在 `TOOL` 末合并为 `finalPromptForLlm` 再进入 `WRITE`（门控命中时可能跳过 LLM，仅下发澄清）。
 
 ## 3. 关键可观测点（最小版）
 
 一次请求至少记录以下信息（不打印完整隐私内容）：
 
 - 检索条数：`docs.size()`
-- 最终 prompt 长度：`promptWithContext.length()`
+- 最终 prompt 长度：`TravelAgent` 内在进入 LLM 前记录 `finalPromptForLlm.length()`（门控路径另见日志）
 
 **性能分段（`TravelAgent`，INFO 级别，前缀 `[perf]`）**：与 MDC 中的 `requestId` 一起便于按请求对齐日志。
 
@@ -39,17 +41,20 @@
 
 ## 4. 相关源码入口
 
-- 对话 SSE 入口：`src/main/java/com/powernode/springmvc/controller/TravelController.java`
-- RAG 链路实现：`src/main/java/com/powernode/springmvc/agent/TravelAgent.java`
-- 查询改写：`src/main/java/com/powernode/springmvc/agent/QueryRewriter.java`
-- 向量检索：`src/main/java/com/powernode/springmvc/config/PgVectorStore.java`（`metadata` JSON 持久化；`similaritySearch` 对 `user_id` 等式过滤走 SQL `metadata->>'user_id'`）
-- 评测问题集：`docs/eval.md`
+- 对话 SSE 入口：`src/main/java/com/travel/ai/controller/TravelController.java`
+- 主线编排与 RAG：`src/main/java/com/travel/ai/agent/TravelAgent.java`
+- 查询改写：`src/main/java/com/travel/ai/agent/QueryRewriter.java`
+- 向量存储：`src/main/java/com/travel/ai/config/PgVectorStore.java`（`metadata` JSON；`similaritySearch` 按 `user_id` 过滤）
+- 评测 HTTP：`src/main/java/com/travel/ai/eval/EvalChatController.java`、`EvalChatService.java`
+- 评测网关 Filter：`src/main/java/com/travel/ai/security/EvalGatewayAuthFilter.java`
+- 手工 RAG 回归表：`docs/eval.md`
 
 ## 5. 安全与可靠性（Week 2 进展）
 
 ### 5.1 鉴权与会话隔离
 
-- 所有业务接口（`/travel/**`、`/knowledge/**`）通过 `SecurityConfig` 受 Spring Security 保护。
+- 业务接口（`/travel/**`、`/knowledge/**` 等）通过 `SecurityConfig` 受 Spring Security 保护。
+- **`/api/v1/eval/**`**：路径需 **已认证**；由 `EvalGatewayAuthFilter` 在校验 **`X-Eval-Gateway-Key`** 与 `app.eval.gateway-key`（环境变量 `APP_EVAL_GATEWAY_KEY`）通过后注入 `eval-gateway` 主体（与 JWT 可并存于不同请求）。未配置网关密钥时评测接口 **401**。
 - `POST /auth/login` 使用内存用户（如 `demo/demo123`）与 `JwtService` 签发 JWT，客户端在后续请求中通过 `Authorization: Bearer ...` 访问。
 - `JwtAuthFilter` 在每次请求前解析 JWT，将当前用户写入 `SecurityContext`，`TravelAgent` 与 `KnowledgeServiceImpl` 从中读取用户名，用于：
   - 写入向量 metadata（`user_id` 字段）；

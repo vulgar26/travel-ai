@@ -61,14 +61,14 @@
 - **可观测**：`meta.stage_order` / `step_count` / `replan_count`；Day5 plan parse / repair once；Day6 工具 stub；Day7 RAG 门控 stub；Day9 输入侧高置信安全短路。  
 - **E7 hashed membership**：`RetrievalMembershipHasher` + `EvalMembershipHttpContext`；响应 `meta.retrieval_hit_id_hashes[]` 及 `retrieval_hit_id_hash_alg` / `retrieval_hit_id_hash_key_derivation` / `retrieval_candidate_*` / `canonical_hit_id_scheme`（与 `D:\Projects\Vagent\plans\eval-upgrade.md` 一致）。  
 - **回归**：`EvalChatControllerTest`（含 membership 单测）、`RetrievalMembershipHasherTest`。
-- **主线 P0-1 编排骨架（里程碑 A，2026-04-18）**：`TravelAgent` 内 `runLinearStages` 固定串行 `PLAN → RETRIEVE → TOOL → GUARD → WRITE`（`MainAgentTurnContext` 承载阶段产物）；`PLAN` 仍为占位；受控天气工具仍在 `TOOL`；`GUARD` 已接零命中门控（见下一条）。**验收留痕（手工）**：`POST /auth/login` 取 JWT 后 `GET /travel/chat/{conversationId}?query=...`；日志中同一 `requestId` 下 `[stage]` 顺序完整；无「天气」意图时 `TOOL done` 可为 0ms；无知识命中时「最终 prompt 字符数」与用户 query 字面长度一致；SSE 仍为引用块首包 + 正文流 + `comment` 心跳。**说明**：`WRITE` 阶段 `doOnNext` 等跑在 Reactor `boundedElastic` 上时，日志 pattern 里 `%X{requestId}` 可能为空（MDC 未跨线程传播），但 `[perf]` 行内仍显式打印 `requestId=`，不挡本里程碑验收。
+- **主线 P0-1 编排骨架（里程碑 A，2026-04-18；2026-04-19 文档修订）**：`TravelAgent` 内 `runLinearStages` 固定串行 `PLAN → RETRIEVE → TOOL → GUARD → WRITE`（`MainAgentTurnContext` 承载阶段产物）。**`PLAN`**：`MainLinePlanProposer` + 无记忆 `ChatClient`（`app.agent.plan-stage.enabled`，测试 profile 默认关）；失败或关闭时用降级 JSON；计划块注入 `finalPromptForLlm`。**受控天气**仍在 `TOOL`；**`GUARD`** 已接零命中门控（见下一条）。**评测口**：`X-Eval-Gateway-Key` 网关密钥（`app.eval.gateway-key` / `APP_EVAL_GATEWAY_KEY`）；`meta.low_confidence_reasons`（snake_case）。**与评测 stub 顺序差异**：`EvalLinearAgentPipeline` 仍为 `PLAN→RETRIEVE→TOOL→WRITE→GUARD`，与主线 `GUARD→WRITE` 不一致——对齐属后续项，见 `docs/IMPLEMENTATION_MATRIX.md`。**验收留痕（手工）**：`POST /auth/login` 取 JWT 后 `GET /travel/chat/{conversationId}?query=...`；日志中同一 `requestId` 下 `[stage]` 顺序完整；无「天气」意图时 `TOOL done` 可为 0ms；SSE 仍为引用块首包 + 正文流 + `comment` 心跳。**说明**：`WRITE` 阶段 `doOnNext` 等跑在 Reactor `boundedElastic` 上时，日志 pattern 里 `%X{requestId}` 可能为空（MDC 未跨线程传播），但 `[perf]` 行内仍显式打印 `requestId=`，不挡本里程碑验收。
 - **主线零命中门控（里程碑 B-1，2026-04-18）**：`app.rag.empty-hits-behavior` 默认 `clarify`；`GUARD` 在 `docs.isEmpty()` 且 `toolPreface` 为空时置 `skipLlmForEmptyHits`，`WRITE` 下发固定澄清（`error_code=RETRIEVE_EMPTY` 文案）并 `ChatMemory.add` 本轮 user/assistant；若 `TOOL` 已注入天气等数据块则**不门控**，避免「只问天气」被误拦。
 
 ---
 
 ## 4. 建议的下一步（P1 入口，非本文件门控）
 
-1. **里程碑 B（主链路）**：统一 `app.agent.total-timeout` / `tool-timeout` / `max-steps` 与降级矩阵收口；可选 **Reactor MDC 传播** 便于全链路 trace；`GUARD` 从 noop 演进为真实门控（引用/置信/空命中策略与升级文档对齐）。主线与 `POST /api/v1/eval/chat` 的 `meta`/契约继续对齐，见 `Vagent/plans/travel-ai-upgrade.md`。  
+1. **里程碑 B（主链路）**：统一 `app.agent.total-timeout` / `tool-timeout` / `max-steps` 与降级矩阵收口；可选 **Reactor MDC 传播** 便于全链路 trace；评测与主线 **阶段顺序**、`meta` 口径与 `travel-ai-upgrade.md` 对齐（本仓跟踪文档：`docs/IMPLEMENTATION_MATRIX.md`）。  
 2. 与 **eval Owner** 对齐：`dataset_id` 变更时 §1 须重跑并重贴 report。  
 3. 与 **组长** 确认 Day10：本 §1 是否足以勾选 **PASS Day10（C 线 / 数值型）**。
 
