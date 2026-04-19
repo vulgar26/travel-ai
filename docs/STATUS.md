@@ -20,7 +20,8 @@ Spring Boot 3 + Spring AI（DashScope）的 **出行规划演示后端**：**JWT
 | 对话 | `GET /travel/chat/{conversationId}?query=…`，SSE：`引用首包` + `data` 流 + `comment` 心跳；`[perf]` 日志 |
 | 主线编排 | `TravelAgent`：`PLAN → RETRIEVE → TOOL → GUARD → WRITE`；`RetrieveEmptyHitGate`；计划 JSON 可经 LLM 产出并注入最终 prompt（`app.agent.plan-stage.enabled`） |
 | RAG | `QueryRewriter`（失败兜底 + 行长限制）、合并去重检索、`user_id` 过滤 |
-| 工具 | `WeatherTool`；`ToolExecutor` / 熔断 / 限流 / 可观测 |
+| 工具 | `WeatherTool`；`ToolExecutor` / 熔断 / 限流 / 可观测；HTTP 超时见 `app.agent.tool-timeout` |
+| Agent 配置 | `app.agent.total-timeout`、`llm-stream-timeout`、`max-steps`、`tool-timeout`（见 `application.yml`） |
 | 安全 | Spring Security：`/api/v1/eval/**` 需认证 + **`X-Eval-Gateway-Key`**；其余业务需 JWT；`JwtSecretStartupValidator` 在 docker/prod 等 profile 强校验密钥 |
 | 限流 | Bucket4j：`app.rate-limit.chat.*`、`app.rate-limit.login.*` |
 | 评测 | `EvalChatService` 等：plan 解析 repair once、TOOL/RAG/safety stub、`meta` 含 `low_confidence_reasons`、E7 membership |

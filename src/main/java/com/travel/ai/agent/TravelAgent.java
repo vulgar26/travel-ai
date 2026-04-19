@@ -24,6 +24,7 @@ import reactor.core.publisher.Flux;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.concurrent.TimeoutException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,6 +54,9 @@ public class TravelAgent {
     /** 合并后进入 prompt 的文档条数上限 */
     private static final int MAX_CONTEXT_DOCS = 5;
 
+    /** 固定流水线阶段数：PLAN、RETRIEVE、TOOL、GUARD、WRITE（与 app.agent.max-steps 校验一致）。 */
+    private static final int FIXED_PIPELINE_STAGE_COUNT = 5;
+
     private final ChatClient chatClient;
     private final ChatMemory chatMemory;
     private final VectorStore vectorStore;
@@ -81,6 +85,18 @@ public class TravelAgent {
      */
     @Value("${app.rag.empty-hits-behavior:clarify}")
     private String emptyHitsBehavior;
+
+    /** 单轮 SSE 总墙钟上限（订阅起至流结束）。 */
+    @Value("${app.agent.total-timeout:120s}")
+    private Duration agentTotalTimeout;
+
+    /** 配置须 ≥ {@link #FIXED_PIPELINE_STAGE_COUNT}，否则拒绝本轮（防止误配）。 */
+    @Value("${app.agent.max-steps:8}")
+    private int agentMaxSteps;
+
+    /** WRITE 阶段 ChatClient 流式超时（与 app.agent.total-timeout 配合调优）。 */
+    @Value("${app.agent.llm-stream-timeout:20s}")
+    private Duration llmStreamTimeout;
 
     private static final String SYSTEM_PROMPT = """
             你是一个专业的出行规划助手。
@@ -126,11 +142,21 @@ public class TravelAgent {
      * 单轮 SSE 对话入口：只做 MDC、构造 {@link MainAgentTurnContext}，再按固定顺序跑阶段，最后组装 SSE。
      */
     public Flux<ServerSentEvent<String>> chat(String conversationId, String userMessage) {
-        Duration llmTimeout = Duration.ofSeconds(20);
-
         String requestId = UUID.randomUUID().toString();
         MDC.put("requestId", requestId);
+
+        if (agentMaxSteps < FIXED_PIPELINE_STAGE_COUNT) {
+            log.error("[agent] app.agent.max-steps={} < fixed_pipeline_steps={} requestId={}",
+                    agentMaxSteps, FIXED_PIPELINE_STAGE_COUNT, requestId);
+            return Flux.just(ServerSentEvent.<String>builder()
+                            .data("【系统提示】服务端配置 app.agent.max-steps 过小，无法完成本轮编排，请联系管理员。")
+                            .build())
+                    .doFinally(signalType -> MDC.remove("requestId"));
+        }
+
         log.info("调用AI，conversationId={}, requestId={}, message={}", conversationId, requestId, userMessage);
+        log.info("[agent] timeout_config total={} llm_stream={} max_steps={} (pipeline_steps={}) requestId={}",
+                agentTotalTimeout, llmStreamTimeout, agentMaxSteps, FIXED_PIPELINE_STAGE_COUNT, requestId);
 
         MainAgentTurnContext ctx = new MainAgentTurnContext(conversationId, userMessage, requestId);
         runLinearStages(ctx);
@@ -150,7 +176,7 @@ public class TravelAgent {
         AtomicLong llmStartNs = new AtomicLong();
         AtomicBoolean firstLlmToken = new AtomicBoolean(true);
 
-        Flux<String> contentFlux = stageWrite(ctx, llmTimeout, llmStartNs, firstLlmToken);
+        Flux<String> contentFlux = stageWrite(ctx, llmStreamTimeout, llmStartNs, firstLlmToken);
 
         Flux<ServerSentEvent<String>> tokenEvents = contentFlux.map(chunk ->
                 ServerSentEvent.<String>builder().data(chunk).build());
@@ -163,9 +189,27 @@ public class TravelAgent {
                 .takeUntilOther(contentFlux.then())
                 .map(tick -> ServerSentEvent.<String>builder().comment("keepalive").build());
 
-        return Flux.concat(citationFlux, Flux.merge(tokenEvents, keepAlive))
+        Flux<ServerSentEvent<String>> merged = Flux.concat(citationFlux, Flux.merge(tokenEvents, keepAlive));
+        return merged
+                .timeout(agentTotalTimeout)
+                .onErrorResume(t -> isTotalTimeout(t),
+                        t -> {
+                            log.warn("[agent] total_timeout elapsed limit={} requestId={} error={}",
+                                    agentTotalTimeout, requestId, t.toString());
+                            return Flux.just(ServerSentEvent.<String>builder()
+                                    .data("【系统提示】本轮对话处理超时，请简化问题后重试。")
+                                    .build());
+                        })
                 .doOnCancel(() -> log.info("SSE 订阅已取消（多为客户端断开），conversationId={}, requestId={}", conversationId, requestId))
                 .doFinally(signalType -> MDC.remove("requestId"));
+    }
+
+    private static boolean isTotalTimeout(Throwable t) {
+        if (t instanceof TimeoutException) {
+            return true;
+        }
+        Throwable c = t.getCause();
+        return c instanceof TimeoutException;
     }
 
     /**

@@ -104,6 +104,15 @@ npm run dev
 | `WEATHER_API_KEY` | 天气 API（可选） |
 | `APP_EVAL_GATEWAY_KEY` | 与请求头 `X-Eval-Gateway-Key` 一致；联调 eval 时必需 |
 
+### `app.agent` 超时与步数（`application.yml`）
+
+| 配置项 | 含义 |
+|--------|------|
+| `app.agent.total-timeout` | 单轮 SSE 总墙钟上限（订阅起至流结束） |
+| `app.agent.max-steps` | 须 **≥ 5**（与固定阶段数一致）；过小则本轮直接返回提示，不跑模型 |
+| `app.agent.tool-timeout` | 天气等工具 **HTTP** 超时（优先于 `weather.timeout-ms`） |
+| `app.agent.llm-stream-timeout` | **WRITE** 阶段 LLM 流式超时 |
+
 ---
 
 ## 测试与 CI

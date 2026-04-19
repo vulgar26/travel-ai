@@ -7,6 +7,8 @@ import okhttp3.Response;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+
+import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,26 +27,47 @@ public class WeatherTool {
     private String apiUrl;
 
     /**
-     * HTTP 调用超时时间（毫秒），默认 3000ms。
+     * 工具 HTTP 超时（优先）；与 {@code app.agent.tool-timeout} 对齐。
+     */
+    @Value("${app.agent.tool-timeout:3s}")
+    private Duration agentToolTimeout;
+
+    /**
+     * 兼容旧配置：仅当需显式覆盖毫秒且与 agent 并存时使用（见 {@link #effectiveTimeoutMs()}）。
      */
     @Value("${weather.timeout-ms:3000}")
-    private long timeoutMs;
+    private long weatherTimeoutMs;
 
     /**
      * 带超时配置的 OkHttpClient。
      */
     private OkHttpClient client;
 
+    /** {@link #init()} 解析后的毫秒超时，供日志与提示文案复用。 */
+    private long httpTimeoutMs;
+
     @PostConstruct
     public void init() {
+        long ms = effectiveTimeoutMs();
+        this.httpTimeoutMs = ms;
         this.client = new OkHttpClient.Builder()
-                .connectTimeout(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
-                .readTimeout(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
-                .writeTimeout(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
-                .callTimeout(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .connectTimeout(ms, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .readTimeout(ms, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .writeTimeout(ms, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .callTimeout(ms, java.util.concurrent.TimeUnit.MILLISECONDS)
                 .build();
 
-        log.info("=== WeatherTool Bean已加载，超时时间={}ms，apiUrl={} ===", timeoutMs, apiUrl);
+        log.info("=== WeatherTool Bean已加载，超时时间={}ms（app.agent.tool-timeout），apiUrl={} ===", ms, apiUrl);
+    }
+
+    /**
+     * 优先 {@code app.agent.tool-timeout}（非零）；否则退回 {@code weather.timeout-ms}。
+     */
+    private long effectiveTimeoutMs() {
+        if (agentToolTimeout != null && !agentToolTimeout.isZero() && !agentToolTimeout.isNegative()) {
+            return Math.max(1L, agentToolTimeout.toMillis());
+        }
+        return Math.max(1L, weatherTimeoutMs);
     }
 
     @Tool(description = "获取指定城市的实时天气信息，包括温度、天气状况、湿度、风速等，用于出行规划参考")
@@ -54,8 +77,8 @@ public class WeatherTool {
         try {
             return getWeatherStrict(cityName);
         } catch (java.net.SocketTimeoutException e) {
-            log.warn("调用天气接口超时，城市={}，timeout={}ms", cityName, timeoutMs);
-            return String.format("%s实时天气查询超时（>%dms），请稍后再试。", cityName, timeoutMs);
+            log.warn("调用天气接口超时，城市={}，timeout={}ms", cityName, httpTimeoutMs);
+            return String.format("%s实时天气查询超时（>%dms），请稍后再试。", cityName, httpTimeoutMs);
         } catch (Exception e) {
             log.error("调用天气接口异常，城市={}，error={}", cityName, e.toString());
             return String.format("%s实时天气暂时不可用，请稍后再试。", cityName);

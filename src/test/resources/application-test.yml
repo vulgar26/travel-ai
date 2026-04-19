@@ -13,6 +13,10 @@ app:
   agent:
     plan-stage:
       enabled: false
+    total-timeout: 300s
+    max-steps: 8
+    tool-timeout: 15s
+    llm-stream-timeout: 60s
   # 集成测试可能多次调登录/业务接口，放宽限流避免 CI 偶发 429
   rate-limit:
     chat:

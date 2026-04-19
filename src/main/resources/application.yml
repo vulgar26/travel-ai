@@ -4,6 +4,9 @@ server:
 spring:
   application:
     name: travel-ai-planner
+  # 本机存在 application-local.yml 时自动合并（.gitignore；无文件则跳过，不影响 CI）
+  config:
+    import: optional:classpath:application-local.yml
 
   datasource:
     url: jdbc:postgresql://127.0.0.1:5432/ragent
@@ -69,7 +72,7 @@ management:
       enabled: true
 weather:
   api-key: ${WEATHER_API_KEY:}
-  # 天气接口调用超时时间（毫秒），默认 3000ms；目前未配置 api-url 时仍使用本地模拟数据
+  # 兼容：HTTP 超时优先见 app.agent.tool-timeout；未迁移时仍读此毫秒值（见 WeatherTool）
   timeout-ms: 3000
 
 app:
@@ -106,3 +109,11 @@ app:
     plan-stage:
       # 主线 PLAN 是否调用 LLM 产出 JSON（集成测试默认关，见 application-test.yml）
       enabled: ${APP_AGENT_PLAN_STAGE_ENABLED:true}
+    # 单轮 SSE 总墙钟上限（从客户端订阅建立后起算，含引用首包、正文流、心跳直至结束）
+    total-timeout: 120s
+    # 固定流水线阶段数上限（当前实现为 PLAN+RETRIEVE+TOOL+GUARD+WRITE 共 5 步；配置须 ≥5 否则拒绝该轮）
+    max-steps: 8
+    # 工具 HTTP 超时（天气 OkHttp）；优先于 weather.timeout-ms
+    tool-timeout: 3s
+    # WRITE 阶段 ChatClient 流式超时（应小于 total-timeout）
+    llm-stream-timeout: 20s

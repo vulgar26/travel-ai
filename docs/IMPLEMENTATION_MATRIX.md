@@ -2,7 +2,7 @@
 
 **维护约定**：以 `src/main/java` 与 `application*.yml` 为真源；本文件随合入更新。**外部计划**路径：`D:\Projects\Vagent\plans\travel-ai-upgrade.md`（不在本仓库内，此处仅摘要对照）。
 
-**更新日期**：2026-04-19
+**更新日期**：2026-04-19（agent 超时配置收口）
 
 ---
 
@@ -13,7 +13,7 @@
 | P0 固定线性阶段、禁止 DAG / 阶段 Map 驱动 | **已满足**：`runLinearStages` 固定调用 `stagePlan` → `stageRetrieve` → `stageTool` → `stageGuard`，无「阶段名→处理器」注册表 | `TravelAgent.java` |
 | 阶段顺序 `plan→retrieve→tool→write→guard`（文档写法） | **部分偏差**：实现顺序为 **`PLAN → RETRIEVE → TOOL → GUARD → WRITE`**（门控在流式写之前） | 同上 |
 | Plan-and-Execute：结构化 Plan JSON | **部分满足**：`MainLinePlanProposer` + 无记忆 `ChatClient`；`app.agent.plan-stage.enabled` 控制是否调 LLM；失败或关闭时用降级 JSON；**计划文本注入** `finalPromptForLlm`，**非**按 `steps` 跳过物理阶段 | `MainLinePlanProposer.java`、`MainLinePlanChatClientConfig.java`、`application.yml` |
-| `app.agent.max-steps` / `total-timeout` / `tool-timeout` 统一收口 | **未实现**：无上述配置键；LLM 流式为代码内 `Duration.ofSeconds(20)`；天气工具走 `ToolExecutor` 与 `weather.timeout-ms` | `TravelAgent.java`、`application.yml` |
+| `app.agent.max-steps` / `total-timeout` / `tool-timeout` 等统一收口 | **部分满足**：`application.yml` 已提供 `total-timeout`、`max-steps`、`tool-timeout`、`llm-stream-timeout`；`TravelAgent` 绑定总超时 / LLM 流式超时 / `max-steps` 下限校验；`WeatherTool` OkHttp 优先读 `app.agent.tool-timeout`。**评测** `latency_ms` 等尚未与同一套键对齐 | `application.yml`、`TravelAgent.java`、`WeatherTool.java` |
 | 检索去重按业务 id | **已满足**：`mergeAndDedupeDocuments` | `TravelAgent.java` |
 | QueryRewriter 畸形兜底 | **已满足**：失败/空行回退与补齐、`max-line-length` | `QueryRewriter.java`、`app.rag.rewrite.max-line-length` |
 | 零命中门控 | **已满足**：`RetrieveEmptyHitGate` + `app.rag.empty-hits-behavior` | `RetrieveEmptyHitGate.java`、`TravelAgent.java` |
@@ -63,7 +63,7 @@
 
 ## 5. 建议的下一步（与外部计划对齐的优先级）
 
-1. **配置收口**：引入 `app.agent.total-timeout`、`max-steps`、`tool-timeout`，`TravelAgent` 与评测超时统计读同一套值。  
+1. **配置收口（续）**：让 `EvalChatService` / 评测 `latency_ms` 或 `meta` 与 `app.agent.*` 同一套超时与步数语义对齐（可观测超限）。  
 2. **阶段顺序对齐**：决定 SSOT 为 `…GUARD→WRITE` 或 `…WRITE→GUARD`，同步改 `EvalLinearAgentPipeline` 与文档。  
 3. **可选**：将 Vagent 侧 `travel-ai-upgrade.md` 的「评测对接」小节补充 **`X-Eval-Gateway-Key`**，与本仓一致。  
 4. **P0-2 加深**：主线 Plan schema 与评测 `PlanV1` 对齐程度、repair 路径是否复用评测协调器。

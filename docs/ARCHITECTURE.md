@@ -10,6 +10,8 @@
 → **线性阶段**（同一 `requestId` 日志）：`PLAN`（结构化计划 JSON，可配置 LLM）→ `RETRIEVE`（`QueryRewriter` + `VectorStore` 多路检索、合并去重）→ `TOOL`（受控天气等）→ `GUARD`（零命中/无工具数据门控）→ `WRITE`（`ChatClient` 流式生成）  
 → SSE：`引用片段` 首包 + 正文 `data` + `comment` 心跳
 
+**超时（`application.yml` → `app.agent`）**：`total-timeout` 包住整段 SSE 合并流；`llm-stream-timeout` 仅作用于 WRITE 的 `ChatClient` 流；`tool-timeout` 作用于天气 OkHttp；`max-steps` 为配置下限校验（当前固定流水线为 5 步，配置须 ≥5）。
+
 ### 1.1 与评测路径的差异（须知）
 
 - **评测** `POST /api/v1/eval/chat` 使用 `EvalLinearAgentPipeline` 记录的 **`PLAN→RETRIEVE→TOOL→WRITE→GUARD`** 顺序（Day2 契约 stub）。  
