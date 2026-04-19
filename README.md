@@ -37,13 +37,15 @@ flowchart LR
 
 对话在 `TravelAgent` 内按固定顺序执行：**计划 → 检索 → 工具 → 门控 → 流式生成**；首包 SSE 为引用片段，随后为正文与心跳。细节见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
+**PLAN 与评测对账**：草案经 `PlanParseCoordinator`（附录 E、`PlanParser`、至多一次 repair，与 `POST /api/v1/eval/chat` 同源）。成功解析后打 **`[plan]`** 行：`draft_source`（`llm` / `config_disabled` / `fallback_llm_error`）、`plan_parse_outcome`（`success` / `repaired`）、`plan_parse_attempts`（`1` 或 `2`）、`resolved`（`primary` / `fallback_template` / `builtin_minimal`），字段名与评测响应里的 `meta.plan_parse_*` 一致，便于把 SSE 日志与 eval run 对齐。
+
 ---
 
 ## 快速开始
 
 ### 前置
 
-- JDK 17+、Maven（或 IDE 内置）
+- JDK **21+**、Maven（或 IDE 内置；与 `pom.xml` 中 `maven.compiler` 一致）
 - 本机 **PostgreSQL（含 pgvector）** 与 **Redis**，或使用 **Docker Compose** 一键起依赖
 
 ### 配置
@@ -112,6 +114,15 @@ npm run dev
 | `app.agent.max-steps` | 须 **≥ 5**（与固定阶段数一致）；过小则本轮直接返回提示，不跑模型 |
 | `app.agent.tool-timeout` | 天气等工具 **HTTP** 超时（优先于 `weather.timeout-ms`） |
 | `app.agent.llm-stream-timeout` | **WRITE** 阶段 LLM 流式超时 |
+| `app.agent.plan-stage.enabled` | 是否在 PLAN 阶段调用无记忆 `ChatClient` 产结构化 JSON；关则走本地降级草案再经 `PlanParseCoordinator` 校验 |
+
+### `app.eval`（评测 target，`application.yml`）
+
+| 配置项 | 含义 |
+|--------|------|
+| `app.eval.gateway-key` / `APP_EVAL_GATEWAY_KEY` | 请求头 `X-Eval-Gateway-Key`；未配置则评测路径 401 |
+| `app.eval.tool-timeout-ms` | TOOL stub 与 `app.agent.tool-timeout` 取 min 后的等待上限（毫秒） |
+| `app.eval.stub-work-sleep-ms` | **仅测试**：阻塞 stub 主路径以验证整段 `total-timeout`；生产保持 **0** |
 
 ---
 

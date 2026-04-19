@@ -233,47 +233,78 @@ public class TravelAgent {
     private void stagePlan(MainAgentTurnContext ctx) {
         long t0 = System.nanoTime();
         log.info("[stage] PLAN start requestId={}", ctx.requestId);
+        String planDraftSource;
         if (appAgentProperties.getPlanStage().isEnabled()) {
             try {
                 ctx.planJson = mainLinePlanProposer.proposePlanJson(ctx.userMessage, ctx.requestId);
+                planDraftSource = "llm";
                 log.info("[stage] PLAN source=llm requestId={}", ctx.requestId);
             } catch (Exception e) {
                 ctx.planJson = fallbackPlanJson("llm_failed");
+                planDraftSource = "fallback_llm_error";
                 log.warn("[stage] PLAN source=fallback_llm_error requestId={} error={}", ctx.requestId, e.toString());
             }
         } else {
             ctx.planJson = fallbackPlanJson("plan_stage_disabled");
+            planDraftSource = "config_disabled";
             log.info("[stage] PLAN source=config_disabled requestId={}", ctx.requestId);
         }
-        enforceAppendixEPlanOrFallback(ctx);
+        enforceAppendixEPlanOrFallback(ctx, planDraftSource);
         logStageBoundary("PLAN", t0, ctx.requestId);
     }
 
     /**
      * 附录 E：与评测一致经 {@link PlanParseCoordinator}（parse + 至多一次 repair）得到可注入的 plan 文本；
      * 仍失败则降级 {@link #fallbackPlanJson}，再失败则用 {@link PlanParseCoordinator#DEFAULT_EVAL_PLAN_JSON}。
+     * <p>
+     * 日志字段 {@code plan_parse_outcome} / {@code plan_parse_attempts} 与评测 {@code meta} 同名口径对齐，便于对账。
+     *
+     * @param planDraftSource {@code llm} | {@code config_disabled} | {@code fallback_llm_error}（草案来源，非解析结果）
      */
-    private void enforceAppendixEPlanOrFallback(MainAgentTurnContext ctx) {
+    private void enforceAppendixEPlanOrFallback(MainAgentTurnContext ctx, String planDraftSource) {
         PlanParseCoordinator.Result first = planParseCoordinator.parseWithOptionalRepair(ctx.planJson);
         if (!first.failed()) {
             ctx.planJson = first.effectivePlanJson();
+            logPlanParseResolution(ctx.requestId, planDraftSource, first, "primary");
             return;
         }
-        log.warn("[stage] PLAN plan_parse_failed_after_repair requestId={} last={}",
+        log.warn("[plan] draft_source={} plan_parse_outcome={} plan_parse_attempts={} requestId={} parse_error={}",
+                planDraftSource,
+                first.outcome(),
+                first.attempts(),
                 ctx.requestId,
                 first.lastFailure() != null ? first.lastFailure().getMessage() : "");
         PlanParseCoordinator.Result second = planParseCoordinator.parseWithOptionalRepair(fallbackPlanJson("plan_parse_rejected"));
         if (!second.failed()) {
             ctx.planJson = second.effectivePlanJson();
+            logPlanParseResolution(ctx.requestId, planDraftSource, second, "fallback_template");
             return;
         }
         String minimal = PlanParseCoordinator.DEFAULT_EVAL_PLAN_JSON.trim().replaceAll("\\s+", " ");
         PlanParseCoordinator.Result third = planParseCoordinator.parseWithOptionalRepair(minimal);
         if (!third.failed()) {
             ctx.planJson = third.effectivePlanJson();
+            logPlanParseResolution(ctx.requestId, planDraftSource, third, "builtin_minimal");
             return;
         }
         throw new IllegalStateException("builtin default plan must parse");
+    }
+
+    /**
+     * 与评测 {@code meta.plan_parse_outcome} / {@code meta.plan_parse_attempts} 对齐的 INFO 行（主线无 meta 时靠日志对账）。
+     */
+    private static void logPlanParseResolution(
+            String requestId,
+            String planDraftSource,
+            PlanParseCoordinator.Result r,
+            String resolved
+    ) {
+        log.info("[plan] draft_source={} plan_parse_outcome={} plan_parse_attempts={} resolved={} requestId={}",
+                planDraftSource,
+                r.outcome(),
+                r.attempts(),
+                resolved,
+                requestId);
     }
 
     private static String jsonEscapeForNotes(String s) {
