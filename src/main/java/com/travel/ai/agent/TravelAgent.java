@@ -5,6 +5,10 @@ import com.travel.ai.agent.guard.RetrieveEmptyHitGate;
 import com.travel.ai.agent.plan.MainLinePlanProposer;
 import com.travel.ai.config.AppAgentProperties;
 import com.travel.ai.plan.PlanParseCoordinator;
+import com.travel.ai.plan.PlanParseException;
+import com.travel.ai.plan.PlanParser;
+import com.travel.ai.plan.PlanPhysicalStagePolicy;
+import com.travel.ai.plan.PlanV1;
 import com.travel.ai.config.RedisChatMemory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,9 +43,12 @@ import static com.travel.ai.tools.ToolExecutor.execute;
 import static com.travel.ai.tools.ToolObservability.log;
 
 /**
- * 出行对话编排：主线采用<strong>固定线性阶段</strong>（P0-1 编排骨架），顺序为
+ * 出行对话编排：主线采用<strong>固定线性阶段</strong>（P0-1 编排骨架），逻辑顺序为
  * {@code PLAN → RETRIEVE → TOOL → GUARD → WRITE}，由 {@link TravelAgent#runLinearStages(MainAgentTurnContext)}
- * 唯一串行调用；禁止用「阶段名 → 处理器」的 Map 或动态跳转驱动执行（避免退化成 DAG/状态机）。
+ * 串行推进；禁止用「阶段名 → 处理器」的 Map 或动态跳转驱动执行（避免退化成 DAG/状态机）。
+ * <p>
+ * 在附录 E {@code steps[*].stage} 未声明某阶段时，<strong>物理跳过</strong>该阶段（见 {@link PlanPhysicalStagePolicy}；{@code GUARD}
+ * 在含 {@code RETRIEVE} 时仍隐式执行以保留零命中门控）。
  * <p>
  * 大白话：用户一问进来，服务端按固定几步处理——先产出结构化计划（可配置调用 LLM）、再查资料、再按需调工具、再过门控（默认「知识库零命中则澄清不调 LLM」）、最后才调大模型流式写回答。
  * <p>
@@ -68,6 +75,7 @@ public class TravelAgent {
     private final com.travel.ai.tools.ToolRateLimiter toolRateLimiter;
     private final MainLinePlanProposer mainLinePlanProposer;
     private final PlanParseCoordinator planParseCoordinator;
+    private final PlanParser planParser;
     private final AppAgentProperties appAgentProperties;
 
     @Value("${app.tools.weather.enabled:true}")
@@ -106,6 +114,7 @@ public class TravelAgent {
                        com.travel.ai.tools.ToolRateLimiter toolRateLimiter,
                        MainLinePlanProposer mainLinePlanProposer,
                        PlanParseCoordinator planParseCoordinator,
+                       PlanParser planParser,
                        AppAgentProperties appAgentProperties) {
         this.chatMemory = chatMemory;
         this.vectorStore = vectorStore;
@@ -115,6 +124,7 @@ public class TravelAgent {
         this.toolRateLimiter = toolRateLimiter;
         this.mainLinePlanProposer = mainLinePlanProposer;
         this.planParseCoordinator = planParseCoordinator;
+        this.planParser = planParser;
         this.appAgentProperties = appAgentProperties;
         this.chatClient = builder
                 .defaultSystem(SYSTEM_PROMPT)
@@ -210,14 +220,76 @@ public class TravelAgent {
     }
 
     /**
-     * P0-1：固定顺序串行推进各阶段（编排 orchestration），不做动态分支。
-     * 大白话：像流水线工人按工序表一步步做，不按模型心情换工序。
+     * P0-1：在固定顺序下串行推进各阶段；是否<strong>真正执行</strong> RETRIEVE/TOOL/GUARD 由解析后的 plan {@code steps} 决定
+     * （{@link PlanPhysicalStagePolicy}）。
      */
     private void runLinearStages(MainAgentTurnContext ctx) {
         stagePlan(ctx);
-        stageRetrieve(ctx);
-        stageTool(ctx);
-        stageGuard(ctx);
+        PlanV1 planV1;
+        try {
+            planV1 = planParser.parse(ctx.planJson);
+        } catch (PlanParseException e) {
+            throw new IllegalStateException("plan must parse after PlanParseCoordinator", e);
+        }
+        PlanPhysicalStagePolicy.PhysicalStageFlags f = PlanPhysicalStagePolicy.resolve(planV1);
+        log.info("[agent] physical_stages retrieve={} tool={} guard={} requestId={}",
+                f.runRetrieve(), f.runTool(), f.runGuard(), ctx.requestId);
+
+        if (f.runRetrieve()) {
+            stageRetrieve(ctx);
+        } else {
+            applyRetrieveSkipped(ctx);
+        }
+        if (f.runTool()) {
+            stageTool(ctx);
+        } else {
+            applyToolSkipped(ctx);
+        }
+        if (f.runGuard()) {
+            stageGuard(ctx);
+        } else {
+            log.info("[stage] GUARD skipped_by_plan requestId={}", ctx.requestId);
+        }
+    }
+
+    private void applyRetrieveSkipped(MainAgentTurnContext ctx) {
+        long t0 = System.nanoTime();
+        log.info("[stage] RETRIEVE skipped_by_plan requestId={}", ctx.requestId);
+        ctx.queries = List.of();
+        ctx.rewriteMs = 0;
+        ctx.currentUser = org.springframework.security.core.context.SecurityContextHolder
+                .getContext()
+                .getAuthentication() != null
+                ? org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication().getName()
+                : "anonymous";
+        ctx.userFilter = new Filter.Expression(
+                Filter.ExpressionType.EQ,
+                new Filter.Key("user_id"),
+                new Filter.Value(ctx.currentUser)
+        );
+        ctx.docs = List.of();
+        ctx.retrieveMs = 0;
+        ctx.promptBase = ctx.userMessage != null ? ctx.userMessage : "";
+        ctx.citationBlock = buildCitationBlock(ctx.docs);
+        log.info("检索到 {} 条知识，queries={}", ctx.docs.size(), ctx.queries);
+        log.info("[perf] rewrite_ms={} retrieve_ms={} doc_count={} requestId={}",
+                ctx.rewriteMs, ctx.retrieveMs, ctx.docs.size(), ctx.requestId);
+        logStageBoundary("RETRIEVE", t0, ctx.requestId);
+    }
+
+    private void applyToolSkipped(MainAgentTurnContext ctx) {
+        long t0 = System.nanoTime();
+        log.info("[stage] TOOL skipped_by_plan requestId={}", ctx.requestId);
+        ctx.toolPreface = "";
+        mergeFinalPromptFromCtx(ctx);
+        logStageBoundary("TOOL", t0, ctx.requestId);
+    }
+
+    private static void mergeFinalPromptFromCtx(MainAgentTurnContext ctx) {
+        String planBlock = (ctx.planJson != null && !ctx.planJson.isBlank())
+                ? "【本轮执行计划（结构化，须遵守）】\n" + ctx.planJson + "\n\n"
+                : "";
+        ctx.finalPromptForLlm = ctx.toolPreface + planBlock + ctx.promptBase;
     }
 
     private void logStageBoundary(String stage, long startNs, String requestId) {
@@ -438,12 +510,7 @@ public class TravelAgent {
                     + "\nEND_TOOL_DATA\n\n";
         }
 
-        String planBlock = (ctx.planJson != null && !ctx.planJson.isBlank())
-                ? "【本轮执行计划（结构化，须遵守）】\n" + ctx.planJson + "\n\n"
-                : "";
-        ctx.finalPromptForLlm = ctx.toolPreface.isEmpty()
-                ? planBlock + ctx.promptBase
-                : ctx.toolPreface + planBlock + ctx.promptBase;
+        mergeFinalPromptFromCtx(ctx);
 
         logStageBoundary("TOOL", t0, ctx.requestId);
     }

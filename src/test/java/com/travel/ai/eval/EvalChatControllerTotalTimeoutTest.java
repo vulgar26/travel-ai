@@ -7,6 +7,7 @@ import com.travel.ai.plan.PlanParseCoordinator;
 import com.travel.ai.plan.PlanParser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -61,14 +62,14 @@ class EvalChatControllerTotalTimeoutTest {
 
     @BeforeEach
     void defaults() {
-        lenient().when(vectorStore.similaritySearch(any())).thenReturn(java.util.List.of());
+        lenient().when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(java.util.List.of());
         lenient().when(queryRewriter.rewrite(any())).thenReturn(java.util.List.of("stub-rewrite"));
     }
 
     @Test
     void whenStubWorkExceedsTotalTimeout_returnsAgentTotalTimeout() throws Exception {
         String body = """
-                {"query":"上海三日游","mode":"AGENT","conversation_id":"c1"}
+                {"query":"上海三日游行程规划与预算偏好说明加长","mode":"AGENT","conversation_id":"c1"}
                 """;
         mockMvc.perform(post("/api/v1/eval/chat")
                         .contentType(MediaType.APPLICATION_JSON)

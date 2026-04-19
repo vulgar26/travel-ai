@@ -14,6 +14,10 @@ import com.travel.ai.eval.dto.EvalToolsCapability;
 import com.travel.ai.config.AppAgentProperties;
 import com.travel.ai.config.AppEvalProperties;
 import com.travel.ai.plan.PlanParseCoordinator;
+import com.travel.ai.plan.PlanParseException;
+import com.travel.ai.plan.PlanParser;
+import com.travel.ai.plan.PlanPhysicalStagePolicy;
+import com.travel.ai.plan.PlanV1;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -38,6 +42,7 @@ import static com.travel.ai.eval.EvalRagGateScenarios.Kind;
 /**
  * 评测聊天：Day2 起在 {@link #buildStubResponse(EvalChatRequest)} 内挂载
  * {@link EvalLinearAgentPipeline}，输出 {@code meta.stage_order} / {@code step_count} / {@code replan_count}；
+ * plan 解析后按 {@link PlanPhysicalStagePolicy} 与主线一致对未出现在 {@code steps} 中的阶段做<strong>物理跳过</strong>；内置默认 plan 仍含全五段以便既有契约。
  * Day5 起对非空 query 执行 {@link PlanParseCoordinator}（repair once + {@code plan_parse_attempts/outcome}）；
  * Day6 起在 TOOL 阶段串行执行 {@link EvalToolStageRunner}（超时/失败降级 + {@code tool} / {@code meta.tool_*} / {@code error_code}）。
  * Day7 起支持 {@link EvalRagGateScenarios}：空命中/低置信门控（P0 不启用 score 阈值），{@code meta.low_confidence} + {@code meta.low_confidence_reasons[]}。
@@ -55,6 +60,7 @@ public class EvalChatService {
     public static final String ERROR_CODE_AGENT_TOTAL_TIMEOUT = "AGENT_TOTAL_TIMEOUT";
 
     private final PlanParseCoordinator planParseCoordinator;
+    private final PlanParser planParser;
     private final EvalToolStageRunner evalToolStageRunner;
     private final ObjectProvider<com.travel.ai.agent.QueryRewriter> queryRewriter;
     private final ObjectProvider<VectorStore> vectorStore;
@@ -63,6 +69,7 @@ public class EvalChatService {
 
     public EvalChatService(
             PlanParseCoordinator planParseCoordinator,
+            PlanParser planParser,
             EvalToolStageRunner evalToolStageRunner,
             ObjectProvider<com.travel.ai.agent.QueryRewriter> queryRewriter,
             ObjectProvider<VectorStore> vectorStore,
@@ -70,6 +77,7 @@ public class EvalChatService {
             AppEvalProperties appEvalProperties
     ) {
         this.planParseCoordinator = planParseCoordinator;
+        this.planParser = planParser;
         this.evalToolStageRunner = evalToolStageRunner;
         this.queryRewriter = queryRewriter;
         this.vectorStore = vectorStore;
@@ -225,17 +233,6 @@ public class EvalChatService {
             return response;
         }
 
-        // Day10/S1：为 requires_citations / membership 路径提前准备证据对象（sources / retrieval_hits）。
-        // 这里不依赖 eval 的 requires_citations 下发（eval 侧判定），而是以“业务侧可引用证据”为长期能力收敛点。
-        Evidence evidence = retrieveEvidence(request.getQuery(), mode, xEvalMembershipTopN);
-        if (!evidence.retrievalHits.isEmpty()) {
-            response.setRetrievalHits(evidence.retrievalHits);
-            meta.setRetrieveHitCount(evidence.retrievalHits.size());
-        }
-        if (!evidence.sources.isEmpty()) {
-            response.setSources(evidence.sources);
-        }
-
         PlanParseCoordinator.Result parseResult = planParseCoordinator.parseWithOptionalRepair(request.getPlanRaw());
         meta.setPlanParseAttempts(parseResult.attempts());
         meta.setPlanParseOutcome(parseResult.outcome());
@@ -246,7 +243,32 @@ public class EvalChatService {
             response.setBehavior("clarify");
             response.setErrorCode("PARSE_ERROR");
             response.setAnswer("Plan JSON 解析失败（已尝试一次修复仍无效）。请提供符合附录 E 的 plan。");
-            return finalizeResponse(response, membershipCtx, evidence);
+            return finalizeResponse(response, membershipCtx, emptyEvidence());
+        }
+
+        final PlanV1 planV1;
+        try {
+            planV1 = planParser.parse(parseResult.effectivePlanJson());
+        } catch (PlanParseException e) {
+            meta.setStageOrder(Collections.emptyList());
+            meta.setStepCount(0);
+            response.setBehavior("clarify");
+            response.setErrorCode("PARSE_ERROR");
+            response.setAnswer("Plan JSON 二次解析失败（内部错误）。请提供符合附录 E 的 plan。");
+            return finalizeResponse(response, membershipCtx, emptyEvidence());
+        }
+        PlanPhysicalStagePolicy.PhysicalStageFlags physical = PlanPhysicalStagePolicy.resolve(planV1);
+
+        // Day10/S1：仅在 plan 声明 RETRIEVE 时拉取向量证据（与主线按 steps 物理跳过对齐）。
+        Evidence evidence = physical.runRetrieve()
+                ? retrieveEvidence(request.getQuery(), mode, xEvalMembershipTopN)
+                : emptyEvidence();
+        if (!evidence.retrievalHits.isEmpty()) {
+            response.setRetrievalHits(evidence.retrievalHits);
+            meta.setRetrieveHitCount(evidence.retrievalHits.size());
+        }
+        if (!evidence.sources.isEmpty()) {
+            response.setSources(evidence.sources);
         }
 
         Optional<EvalQuerySafetyPolicy.Decision> safety = EvalQuerySafetyPolicy.evaluate(request.getQuery());
@@ -299,7 +321,7 @@ public class EvalChatService {
         }
 
         // 业务侧“空命中”兜底门控（不依赖 eval_rag_scenario）；避免在无证据时强答/编造引用。
-        if (meta.getRetrieveHitCount() != null && meta.getRetrieveHitCount() == 0) {
+        if (physical.runRetrieve() && meta.getRetrieveHitCount() != null && meta.getRetrieveHitCount() == 0) {
             meta.setStageOrder(List.of("PLAN", "RETRIEVE"));
             meta.setStepCount(2);
             meta.setLowConfidence(true);
@@ -312,7 +334,8 @@ public class EvalChatService {
 
         // 业务侧“低置信”兜底门控：短 query / 指代不明 等，避免同类输入漂移到 answer。
         String q = request.getQuery().trim();
-        if (q.length() <= 6 || q.contains("这个东西") || q.contains("那个项目") || q.contains("那个") && q.contains("项目")) {
+        if (physical.runRetrieve()
+                && (q.length() <= 6 || q.contains("这个东西") || q.contains("那个项目") || q.contains("那个") && q.contains("项目"))) {
             meta.setStageOrder(List.of("PLAN", "RETRIEVE"));
             meta.setStepCount(2);
             meta.setLowConfidence(true);
@@ -323,7 +346,7 @@ public class EvalChatService {
             return finalizeResponse(response, membershipCtx, evidence);
         }
 
-        Kind ragKind = EvalRagGateScenarios.resolve(request);
+        Kind ragKind = physical.runRetrieve() ? EvalRagGateScenarios.resolve(request) : null;
         if (ragKind != null) {
             meta.setStageOrder(List.of("PLAN", "RETRIEVE"));
             meta.setStepCount(2);
@@ -343,7 +366,7 @@ public class EvalChatService {
         }
 
         AtomicReference<EvalToolStageRunner.EvalToolInvocationResult> toolSlot = new AtomicReference<>();
-        List<String> stageOrder = EvalLinearAgentPipeline.runStubStages(request, () -> {
+        List<String> stageOrder = EvalLinearAgentPipeline.runStubStages(request, physical, () -> {
             EvalToolStageRunner.EvalToolInvocationResult r = evalToolStageRunner.invoke(request);
             if (r != null) {
                 toolSlot.set(r);
@@ -471,6 +494,10 @@ public class EvalChatService {
             int candidateTotal,
             int candidateLimitN
     ) {
+    }
+
+    private static Evidence emptyEvidence() {
+        return new Evidence(List.of(), List.of(), 0, 0);
     }
 
     private record DedupedSlice(List<Document> docs, int totalUnique) {

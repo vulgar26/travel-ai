@@ -1,14 +1,16 @@
 package com.travel.ai.eval;
 
 import com.travel.ai.eval.dto.EvalChatRequest;
+import com.travel.ai.plan.PlanPhysicalStagePolicy;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
 /**
- * P0 线性阶段执行骨架（Day2）：<strong>单一入口</strong> {@link #runStubStages(EvalChatRequest)}，内部按固定数组顺序
- * {@code PLAN→RETRIEVE→TOOL→GUARD→WRITE} 串行调用各阶段占位逻辑（与主线 {@code TravelAgent} 一致）。
+ * P0 线性阶段执行骨架（Day2）：<strong>单一入口</strong> {@link #runStubStages(EvalChatRequest, PlanPhysicalStagePolicy.PhysicalStageFlags, Runnable)}，
+ * 在固定顺序 {@code PLAN→RETRIEVE→TOOL→GUARD→WRITE} 下按 {@link PlanPhysicalStagePolicy} <strong>物理跳过</strong>未出现在 plan steps 中的阶段
+ * （与主线 {@link com.travel.ai.agent.TravelAgent} 一致）。
  * <p>
  * <b>如何保证固定顺序（给组长看的概念层说明）</b>：
  * <ul>
@@ -30,23 +32,59 @@ public final class EvalLinearAgentPipeline {
             EvalAgentStage.WRITE
     };
 
+    /** {@code PLAN} 之后、按物理跳过规则迭代的子序列。 */
+    private static final EvalAgentStage[] POST_PLAN_STAGES = {
+            EvalAgentStage.RETRIEVE,
+            EvalAgentStage.TOOL,
+            EvalAgentStage.GUARD,
+            EvalAgentStage.WRITE
+    };
+
     private EvalLinearAgentPipeline() {
     }
 
     /**
      * Day2：依次执行五阶段占位逻辑，并返回实际经过的阶段名列表（大写枚举名，与契约一致）。
+     *
+     * @deprecated 使用 {@link #runStubStages(EvalChatRequest, PlanPhysicalStagePolicy.PhysicalStageFlags, Runnable)} 以对齐 plan steps。
      */
+    @Deprecated
     public static List<String> runStubStages(EvalChatRequest request) {
-        return runStubStages(request, () -> {});
+        return runStubStages(request, PlanPhysicalStagePolicy.PhysicalStageFlags.allStagesAfterPlan(), () -> {});
     }
 
     /**
      * Day6：在 {@link EvalAgentStage#TOOL} 节点插入<strong>串行</strong>回调（仅调用一次，不并行多工具），其余阶段仍为占位。
+     *
+     * @deprecated 使用 {@link #runStubStages(EvalChatRequest, PlanPhysicalStagePolicy.PhysicalStageFlags, Runnable)}。
      */
+    @Deprecated
     public static List<String> runStubStages(EvalChatRequest request, Runnable onToolStage) {
+        return runStubStages(request, PlanPhysicalStagePolicy.PhysicalStageFlags.allStagesAfterPlan(), onToolStage);
+    }
+
+    /**
+     * 按 {@link PlanPhysicalStagePolicy} 物理跳过 RETRIEVE/TOOL/GUARD；{@code PLAN} 与 {@code WRITE} 始终计入 {@code stage_order}。
+     */
+    public static List<String> runStubStages(
+            EvalChatRequest request,
+            PlanPhysicalStagePolicy.PhysicalStageFlags flags,
+            Runnable onToolStage
+    ) {
         List<String> stageOrder = new ArrayList<>(FIXED_ORDER.length);
         Runnable toolHook = onToolStage != null ? onToolStage : () -> {};
-        for (EvalAgentStage stage : FIXED_ORDER) {
+        stageOrder.add(EvalAgentStage.PLAN.name());
+        runStubStage(EvalAgentStage.PLAN, request);
+        for (EvalAgentStage stage : POST_PLAN_STAGES) {
+            if (stage == EvalAgentStage.RETRIEVE && !flags.runRetrieve()) {
+                continue;
+            }
+            if (stage == EvalAgentStage.TOOL && !flags.runTool()) {
+                continue;
+            }
+            if (stage == EvalAgentStage.GUARD && !flags.runGuard()) {
+                continue;
+            }
             if (stage == EvalAgentStage.TOOL) {
                 toolHook.run();
             } else {

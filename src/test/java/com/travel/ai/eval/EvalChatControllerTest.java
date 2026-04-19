@@ -16,6 +16,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.ai.document.Document;
+import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -91,13 +92,13 @@ class EvalChatControllerTest {
     @BeforeEach
     void resetRepairPort() {
         mutablePlanRepairModelPort.reset();
-        lenient().when(vectorStore.similaritySearch(any())).thenReturn(List.of());
+        lenient().when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of());
         lenient().when(queryRewriter.rewrite(any())).thenReturn(List.of("stub-rewrite"));
     }
 
     @Test
     void evalChatIncludesRetrievalHitIdHashesWhenMembershipHeadersPresent() throws Exception {
-        when(vectorStore.similaritySearch(any())).thenReturn(List.of(
+        when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of(
                 new Document("hit-abc-1", "snippet body", Map.of("user_id", "eval", "source_name", "KB"))
         ));
         String token = "x-eval-token-unit-test-32bytes!!!";
@@ -126,9 +127,29 @@ class EvalChatControllerTest {
     }
 
     @Test
+    void writeOnlyPlan_stageOrderSkipsRetrieveToolGuard() throws Exception {
+        String body = """
+                {
+                  "query": "仅写不检索",
+                  "mode": "AGENT",
+                  "plan_raw": "{\\"plan_version\\":\\"v1\\",\\"steps\\":[{\\"step_id\\":\\"w1\\",\\"stage\\":\\"WRITE\\",\\"instruction\\":\\"x\\"}],\\"constraints\\":{\\"max_steps\\":8,\\"total_timeout_ms\\":60000,\\"tool_timeout_ms\\":10000}}"
+                }
+                """;
+        mockMvc.perform(post("/api/v1/eval/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.meta.stage_order.length()").value(2))
+                .andExpect(jsonPath("$.meta.stage_order[0]").value("PLAN"))
+                .andExpect(jsonPath("$.meta.stage_order[1]").value("WRITE"))
+                .andExpect(jsonPath("$.meta.step_count").value(2))
+                .andExpect(jsonPath("$.meta.plan_parse_outcome").value("success"));
+    }
+
+    @Test
     void chatReturnsSnakeCaseAndRequiredFields() throws Exception {
         String body = """
-                {"query":"上海三日游","mode":"AGENT","conversation_id":"c1"}
+                {"query":"上海三日游行程规划与预算偏好说明","mode":"AGENT","conversation_id":"c1"}
                 """;
         mockMvc.perform(post("/api/v1/eval/chat")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -160,8 +181,8 @@ class EvalChatControllerTest {
      */
     static Stream<Arguments> metaObservabilityCases() {
         return Stream.of(
-                Arguments.of("{\"query\":\"上海\",\"mode\":\"AGENT\"}", 5),
-                Arguments.of("{\"query\":\"仅一行\",\"mode\":\"EVAL\"}", 5),
+                Arguments.of("{\"query\":\"上海多日游行程规划需求说明\",\"mode\":\"AGENT\"}", 5),
+                Arguments.of("{\"query\":\"评测集单行但加长超过六字以走全管线\",\"mode\":\"EVAL\"}", 5),
                 Arguments.of("{\"query\":\"  \"}", 0),
                 Arguments.of("{\"query\":\"\"}", 0)
         );
@@ -208,7 +229,7 @@ class EvalChatControllerTest {
      */
     @Test
     void badPlanRaw_repairOnceThenSuccess() throws Exception {
-        String body = "{\"query\":\"评测\",\"plan_raw\":\"{\\\"plan_version\\\":\\\"v1\\\"}\"}";
+        String body = "{\"query\":\"评测计划repair一次成功验证用例加长\",\"mode\":\"AGENT\",\"plan_raw\":\"{\\\"plan_version\\\":\\\"v1\\\"}\"}";
         mockMvc.perform(post("/api/v1/eval/chat")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
@@ -244,7 +265,7 @@ class EvalChatControllerTest {
      */
     @Test
     void evalToolScenario_success_sample() throws Exception {
-        String body = "{\"query\":\"评测工具成功\",\"eval_tool_scenario\":\"success\"}";
+        String body = "{\"query\":\"评测工具成功场景stub加长到七字以上\",\"mode\":\"AGENT\",\"eval_tool_scenario\":\"success\"}";
         mockMvc.perform(post("/api/v1/eval/chat")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
@@ -267,7 +288,7 @@ class EvalChatControllerTest {
      */
     @Test
     void evalToolScenario_timeout_sample() throws Exception {
-        String body = "{\"query\":\"评测工具超时\",\"eval_tool_scenario\":\"timeout\"}";
+        String body = "{\"query\":\"评测工具超时场景stub加长到七字\",\"mode\":\"AGENT\",\"eval_tool_scenario\":\"timeout\"}";
         mockMvc.perform(post("/api/v1/eval/chat")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
@@ -288,7 +309,7 @@ class EvalChatControllerTest {
      */
     @Test
     void evalToolScenario_error_sample() throws Exception {
-        String body = "{\"query\":\"评测工具失败\",\"eval_tool_scenario\":\"error\"}";
+        String body = "{\"query\":\"评测工具失败场景stub加长到七字\",\"mode\":\"AGENT\",\"eval_tool_scenario\":\"error\"}";
         mockMvc.perform(post("/api/v1/eval/chat")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
@@ -378,7 +399,7 @@ class EvalChatControllerTest {
      */
     @Test
     void evalRagScenario_lowConfidence_sample() throws Exception {
-        String body = "{\"query\":\"评测低置信\",\"eval_rag_scenario\":\"low_conf\"}";
+        String body = "{\"query\":\"评测低置信RAG场景加长到七字以上\",\"mode\":\"AGENT\",\"eval_rag_scenario\":\"low_conf\"}";
         mockMvc.perform(post("/api/v1/eval/chat")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))

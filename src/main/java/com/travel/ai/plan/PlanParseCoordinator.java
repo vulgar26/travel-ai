@@ -16,10 +16,14 @@ public class PlanParseCoordinator {
     public static final String DEFAULT_EVAL_PLAN_JSON = """
             {
               "plan_version": "v1",
+              "goal": "评测默认全阶段占位",
               "steps": [
-                { "step_id": "s1", "stage": "WRITE", "instruction": "输出评测占位答复" }
+                { "step_id": "s1", "stage": "RETRIEVE", "instruction": "检索相关知识片段。" },
+                { "step_id": "s2", "stage": "TOOL", "instruction": "按需调用受控工具。" },
+                { "step_id": "s3", "stage": "GUARD", "instruction": "门控与证据检查。" },
+                { "step_id": "s4", "stage": "WRITE", "instruction": "生成评测占位答复。" }
               ],
-              "constraints": { "max_steps": 1, "total_timeout_ms": 60000, "tool_timeout_ms": 10000 }
+              "constraints": { "max_steps": 8, "total_timeout_ms": 60000, "tool_timeout_ms": 10000 }
             }
             """;
 

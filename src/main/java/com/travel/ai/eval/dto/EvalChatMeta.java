@@ -31,7 +31,8 @@ public class EvalChatMeta {
     private String requestId;
 
     /**
-     * 本请求实际经过的线性阶段序列（大写），为 {@code PLAN|RETRIEVE|TOOL|GUARD|WRITE} 的子序列（与主线 SSE 一致）。
+     * 本请求实际经过的线性阶段序列（大写），为 {@code PLAN|RETRIEVE|TOOL|GUARD|WRITE} 的子序列（与主线 SSE 一致；
+     * 长度随附录 E {@code plan.steps} 物理跳过而变短）。
      * 空 query 等未跑流水线时为 {@code []}。
      */
     private List<String> stageOrder;
