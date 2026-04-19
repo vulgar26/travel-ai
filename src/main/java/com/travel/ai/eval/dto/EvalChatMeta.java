@@ -43,6 +43,26 @@ public class EvalChatMeta {
     private int replanCount;
 
     /**
+     * 与主线共用的 {@code app.agent.total-timeout}（毫秒），便于 eval 对账与回归。
+     */
+    private Long agentTotalTimeoutMs;
+
+    /** {@code app.agent.max-steps} 配置值。 */
+    private Integer agentMaxStepsConfigured;
+
+    /** {@code app.agent.tool-timeout}（毫秒）。 */
+    private Long agentToolTimeoutMs;
+
+    /** {@code app.agent.llm-stream-timeout}（毫秒）。 */
+    private Long agentLlmStreamTimeoutMs;
+
+    /**
+     * 当 {@code latency_ms}（Controller 写入）大于 {@link #agentTotalTimeoutMs} 时为 {@code true}；
+     * 未写入总超时或未比较时为 {@code null}。
+     */
+    private Boolean agentLatencyBudgetExceeded;
+
+    /**
      * Plan 解析尝试次数：{@code 1} 首次成功；{@code 2} 首次失败后经过一次 repair 再解析。
      * 未执行 plan 解析（如空 query）时不返回该字段。
      */
@@ -164,6 +184,46 @@ public class EvalChatMeta {
 
     public void setReplanCount(int replanCount) {
         this.replanCount = replanCount;
+    }
+
+    public Long getAgentTotalTimeoutMs() {
+        return agentTotalTimeoutMs;
+    }
+
+    public void setAgentTotalTimeoutMs(Long agentTotalTimeoutMs) {
+        this.agentTotalTimeoutMs = agentTotalTimeoutMs;
+    }
+
+    public Integer getAgentMaxStepsConfigured() {
+        return agentMaxStepsConfigured;
+    }
+
+    public void setAgentMaxStepsConfigured(Integer agentMaxStepsConfigured) {
+        this.agentMaxStepsConfigured = agentMaxStepsConfigured;
+    }
+
+    public Long getAgentToolTimeoutMs() {
+        return agentToolTimeoutMs;
+    }
+
+    public void setAgentToolTimeoutMs(Long agentToolTimeoutMs) {
+        this.agentToolTimeoutMs = agentToolTimeoutMs;
+    }
+
+    public Long getAgentLlmStreamTimeoutMs() {
+        return agentLlmStreamTimeoutMs;
+    }
+
+    public void setAgentLlmStreamTimeoutMs(Long agentLlmStreamTimeoutMs) {
+        this.agentLlmStreamTimeoutMs = agentLlmStreamTimeoutMs;
+    }
+
+    public Boolean getAgentLatencyBudgetExceeded() {
+        return agentLatencyBudgetExceeded;
+    }
+
+    public void setAgentLatencyBudgetExceeded(Boolean agentLatencyBudgetExceeded) {
+        this.agentLatencyBudgetExceeded = agentLatencyBudgetExceeded;
     }
 
     public Integer getPlanParseAttempts() {

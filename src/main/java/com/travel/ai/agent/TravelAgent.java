@@ -3,6 +3,7 @@ package com.travel.ai.agent;
 import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
 import com.travel.ai.agent.guard.RetrieveEmptyHitGate;
 import com.travel.ai.agent.plan.MainLinePlanProposer;
+import com.travel.ai.config.AppAgentProperties;
 import com.travel.ai.config.RedisChatMemory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,9 +66,7 @@ public class TravelAgent {
     private final com.travel.ai.tools.ToolCircuitBreaker toolCircuitBreaker;
     private final com.travel.ai.tools.ToolRateLimiter toolRateLimiter;
     private final MainLinePlanProposer mainLinePlanProposer;
-
-    @Value("${app.agent.plan-stage.enabled:true}")
-    private boolean planStageLlmEnabled;
+    private final AppAgentProperties appAgentProperties;
 
     @Value("${app.tools.weather.enabled:true}")
     private boolean weatherToolEnabled;
@@ -86,18 +85,6 @@ public class TravelAgent {
     @Value("${app.rag.empty-hits-behavior:clarify}")
     private String emptyHitsBehavior;
 
-    /** 单轮 SSE 总墙钟上限（订阅起至流结束）。 */
-    @Value("${app.agent.total-timeout:120s}")
-    private Duration agentTotalTimeout;
-
-    /** 配置须 ≥ {@link #FIXED_PIPELINE_STAGE_COUNT}，否则拒绝本轮（防止误配）。 */
-    @Value("${app.agent.max-steps:8}")
-    private int agentMaxSteps;
-
-    /** WRITE 阶段 ChatClient 流式超时（与 app.agent.total-timeout 配合调优）。 */
-    @Value("${app.agent.llm-stream-timeout:20s}")
-    private Duration llmStreamTimeout;
-
     private static final String SYSTEM_PROMPT = """
             你是一个专业的出行规划助手。
             当用户提供出发地、目的地、时间、预算等信息时，你需要：
@@ -115,7 +102,8 @@ public class TravelAgent {
                        WeatherTool weatherTool,
                        com.travel.ai.tools.ToolCircuitBreaker toolCircuitBreaker,
                        com.travel.ai.tools.ToolRateLimiter toolRateLimiter,
-                       MainLinePlanProposer mainLinePlanProposer) {
+                       MainLinePlanProposer mainLinePlanProposer,
+                       AppAgentProperties appAgentProperties) {
         this.chatMemory = chatMemory;
         this.vectorStore = vectorStore;
         this.queryRewriter = queryRewriter;
@@ -123,6 +111,7 @@ public class TravelAgent {
         this.toolCircuitBreaker = toolCircuitBreaker;
         this.toolRateLimiter = toolRateLimiter;
         this.mainLinePlanProposer = mainLinePlanProposer;
+        this.appAgentProperties = appAgentProperties;
         this.chatClient = builder
                 .defaultSystem(SYSTEM_PROMPT)
                 .defaultAdvisors(
@@ -144,6 +133,10 @@ public class TravelAgent {
     public Flux<ServerSentEvent<String>> chat(String conversationId, String userMessage) {
         String requestId = UUID.randomUUID().toString();
         MDC.put("requestId", requestId);
+
+        int agentMaxSteps = appAgentProperties.getMaxSteps();
+        Duration agentTotalTimeout = appAgentProperties.getTotalTimeout();
+        Duration llmStreamTimeout = appAgentProperties.getLlmStreamTimeout();
 
         if (agentMaxSteps < FIXED_PIPELINE_STAGE_COUNT) {
             log.error("[agent] app.agent.max-steps={} < fixed_pipeline_steps={} requestId={}",
@@ -235,7 +228,7 @@ public class TravelAgent {
     private void stagePlan(MainAgentTurnContext ctx) {
         long t0 = System.nanoTime();
         log.info("[stage] PLAN start requestId={}", ctx.requestId);
-        if (planStageLlmEnabled) {
+        if (appAgentProperties.getPlanStage().isEnabled()) {
             try {
                 ctx.planJson = mainLinePlanProposer.proposePlanJson(ctx.userMessage, ctx.requestId);
                 log.info("[stage] PLAN source=llm requestId={}", ctx.requestId);

@@ -4,6 +4,7 @@ import com.jayway.jsonpath.Configuration;
 import com.jayway.jsonpath.JsonPath;
 import com.jayway.jsonpath.Option;
 import com.travel.ai.agent.QueryRewriter;
+import com.travel.ai.config.AppAgentProperties;
 import com.travel.ai.eval.dto.EvalChatMeta;
 import com.travel.ai.eval.planrepair.EvalPlanParseCoordinator;
 import com.travel.ai.plan.PlanParser;
@@ -16,6 +17,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -51,6 +53,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebMvcTest(controllers = EvalChatController.class)
 @AutoConfigureMockMvc(addFilters = false)
 @TestPropertySource(properties = "app.eval.tool-timeout-ms=50")
+@EnableConfigurationProperties(AppAgentProperties.class)
 @Import({EvalChatService.class, EvalPlanParseCoordinator.class, PlanParser.class, EvalToolStageRunner.class, EvalChatControllerTestConfig.class})
 class EvalChatControllerTest {
 

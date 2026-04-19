@@ -13,7 +13,7 @@
 | P0 固定线性阶段、禁止 DAG / 阶段 Map 驱动 | **已满足**：`runLinearStages` 固定调用 `stagePlan` → `stageRetrieve` → `stageTool` → `stageGuard`，无「阶段名→处理器」注册表 | `TravelAgent.java` |
 | 阶段顺序 `plan→retrieve→tool→write→guard`（文档写法） | **部分偏差**：实现顺序为 **`PLAN → RETRIEVE → TOOL → GUARD → WRITE`**（门控在流式写之前） | 同上 |
 | Plan-and-Execute：结构化 Plan JSON | **部分满足**：`MainLinePlanProposer` + 无记忆 `ChatClient`；`app.agent.plan-stage.enabled` 控制是否调 LLM；失败或关闭时用降级 JSON；**计划文本注入** `finalPromptForLlm`，**非**按 `steps` 跳过物理阶段 | `MainLinePlanProposer.java`、`MainLinePlanChatClientConfig.java`、`application.yml` |
-| `app.agent.max-steps` / `total-timeout` / `tool-timeout` 等统一收口 | **部分满足**：`application.yml` 已提供 `total-timeout`、`max-steps`、`tool-timeout`、`llm-stream-timeout`；`TravelAgent` 绑定总超时 / LLM 流式超时 / `max-steps` 下限校验；`WeatherTool` OkHttp 优先读 `app.agent.tool-timeout`。**评测** `latency_ms` 等尚未与同一套键对齐 | `application.yml`、`TravelAgent.java`、`WeatherTool.java` |
+| `app.agent.max-steps` / `total-timeout` / `tool-timeout` 等统一收口 | **部分满足**：`AppAgentProperties` 绑定 `app.agent.*`；`TravelAgent` / `WeatherTool` / **`EvalChatService`** 共用；评测 `meta` 回显 `agent_*_timeout_ms` / `agent_max_steps_configured`，`latency_ms` 与 `agent_total_timeout_ms` 比较写入 `agent_latency_budget_exceeded` | `AppAgentProperties.java`、`EvalChatService.java`、`EvalChatController.java` |
 | 检索去重按业务 id | **已满足**：`mergeAndDedupeDocuments` | `TravelAgent.java` |
 | QueryRewriter 畸形兜底 | **已满足**：失败/空行回退与补齐、`max-line-length` | `QueryRewriter.java`、`app.rag.rewrite.max-line-length` |
 | 零命中门控 | **已满足**：`RetrieveEmptyHitGate` + `app.rag.empty-hits-behavior` | `RetrieveEmptyHitGate.java`、`TravelAgent.java` |
@@ -53,7 +53,7 @@
 
 以下在 `travel-ai-upgrade.md` 中出现，但**本仓尚未**完整落地或仅局部存在：
 
-- **全局** `app.agent.total-timeout`、`app.agent.max-steps`、`app.agent.tool-timeout` 与降级矩阵配置化（与评测 `meta` 阈值统计对齐）。
+- **评测工作线程级 deadline**（stub 各阶段 CPU 睡眠仍可能使 `latency_ms` 超过 `agent_total_timeout_ms` 的「提示」语义）：尚未强制中断。
 - **Reflection / recovery**（一次性反思）、`self_check` JSON、`meta.recovery_action`。
 - **长期记忆** `user_profile` / 保留期 / 删除权（文档 P0 整节隐私治理）。
 - **主线与评测**阶段顺序统一为同一枚举序列（当前 SSE 与 `EvalLinearAgentPipeline` 顺序不同）。
@@ -63,7 +63,7 @@
 
 ## 5. 建议的下一步（与外部计划对齐的优先级）
 
-1. **配置收口（续）**：让 `EvalChatService` / 评测 `latency_ms` 或 `meta` 与 `app.agent.*` 同一套超时与步数语义对齐（可观测超限）。  
+1. **配置收口（续）**：为评测管线内各阶段（如 `EvalToolStageRunner`）增加可选 deadline，与 `app.agent.tool-timeout` / `total-timeout` 强绑定。  
 2. **阶段顺序对齐**：决定 SSOT 为 `…GUARD→WRITE` 或 `…WRITE→GUARD`，同步改 `EvalLinearAgentPipeline` 与文档。  
 3. **可选**：将 Vagent 侧 `travel-ai-upgrade.md` 的「评测对接」小节补充 **`X-Eval-Gateway-Key`**，与本仓一致。  
 4. **P0-2 加深**：主线 Plan schema 与评测 `PlanV1` 对齐程度、repair 路径是否复用评测协调器。

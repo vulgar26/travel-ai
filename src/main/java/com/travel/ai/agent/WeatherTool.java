@@ -4,6 +4,7 @@ import jakarta.annotation.PostConstruct;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
+import com.travel.ai.config.AppAgentProperties;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -27,16 +28,14 @@ public class WeatherTool {
     private String apiUrl;
 
     /**
-     * 工具 HTTP 超时（优先）；与 {@code app.agent.tool-timeout} 对齐。
-     */
-    @Value("${app.agent.tool-timeout:3s}")
-    private Duration agentToolTimeout;
-
-    /**
-     * 兼容旧配置：仅当需显式覆盖毫秒且与 agent 并存时使用（见 {@link #effectiveTimeoutMs()}）。
+     * 兼容旧配置：当 {@code app.agent.tool-timeout} 无效时退回（见 {@link #effectiveTimeoutMs()}）。
      */
     @Value("${weather.timeout-ms:3000}")
     private long weatherTimeoutMs;
+
+    public WeatherTool(AppAgentProperties appAgentProperties) {
+        this.appAgentProperties = appAgentProperties;
+    }
 
     /**
      * 带超时配置的 OkHttpClient。
@@ -64,8 +63,9 @@ public class WeatherTool {
      * 优先 {@code app.agent.tool-timeout}（非零）；否则退回 {@code weather.timeout-ms}。
      */
     private long effectiveTimeoutMs() {
-        if (agentToolTimeout != null && !agentToolTimeout.isZero() && !agentToolTimeout.isNegative()) {
-            return Math.max(1L, agentToolTimeout.toMillis());
+        Duration d = appAgentProperties.getToolTimeout();
+        if (d != null && !d.isZero() && !d.isNegative()) {
+            return Math.max(1L, d.toMillis());
         }
         return Math.max(1L, weatherTimeoutMs);
     }

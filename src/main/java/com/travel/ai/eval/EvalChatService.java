@@ -11,7 +11,10 @@ import com.travel.ai.eval.dto.EvalGuardrailsCapability;
 import com.travel.ai.eval.dto.EvalRetrievalCapability;
 import com.travel.ai.eval.dto.EvalStreamingCapability;
 import com.travel.ai.eval.dto.EvalToolsCapability;
+import com.travel.ai.config.AppAgentProperties;
 import com.travel.ai.eval.planrepair.EvalPlanParseCoordinator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.ai.document.Document;
@@ -45,21 +48,43 @@ import static com.travel.ai.eval.EvalRagGateScenarios.Kind;
 @Service
 public class EvalChatService {
 
+    private static final Logger log = LoggerFactory.getLogger(EvalChatService.class);
+
     private final EvalPlanParseCoordinator planParseCoordinator;
     private final EvalToolStageRunner evalToolStageRunner;
     private final ObjectProvider<com.travel.ai.agent.QueryRewriter> queryRewriter;
     private final ObjectProvider<VectorStore> vectorStore;
+    private final AppAgentProperties appAgentProperties;
 
     public EvalChatService(
             EvalPlanParseCoordinator planParseCoordinator,
             EvalToolStageRunner evalToolStageRunner,
             ObjectProvider<com.travel.ai.agent.QueryRewriter> queryRewriter,
-            ObjectProvider<VectorStore> vectorStore
+            ObjectProvider<VectorStore> vectorStore,
+            AppAgentProperties appAgentProperties
     ) {
         this.planParseCoordinator = planParseCoordinator;
         this.evalToolStageRunner = evalToolStageRunner;
         this.queryRewriter = queryRewriter;
         this.vectorStore = vectorStore;
+        this.appAgentProperties = appAgentProperties;
+    }
+
+    /**
+     * 在 Controller 写入 {@code latency_ms} 后调用：与 {@code app.agent.total-timeout} 对比并写入
+     * {@code meta.agent_latency_budget_exceeded}。
+     */
+    public void applyLatencyBudgetToMeta(EvalChatResponse response, long latencyMs) {
+        EvalChatMeta m = response.getMeta();
+        if (m == null || m.getAgentTotalTimeoutMs() == null) {
+            return;
+        }
+        boolean exceeded = latencyMs > m.getAgentTotalTimeoutMs();
+        m.setAgentLatencyBudgetExceeded(exceeded);
+        if (exceeded) {
+            log.warn("[eval] latency_ms={} exceeds agent_total_timeout_ms={} request_id={}",
+                    latencyMs, m.getAgentTotalTimeoutMs(), m.getRequestId());
+        }
     }
 
     /**
@@ -319,6 +344,13 @@ public class EvalChatService {
         response.setAnswer("Day3：meta 可观测稳定（stage_order / step_count / replan_count=0）；阶段仍为占位执行。");
         response.setBehavior("answer");
         return finalizeResponse(response, membershipCtx, evidence);
+    }
+
+    private void stampAgentRuntimeOnMeta(EvalChatMeta meta) {
+        meta.setAgentTotalTimeoutMs(appAgentProperties.getTotalTimeout().toMillis());
+        meta.setAgentMaxStepsConfigured(appAgentProperties.getMaxSteps());
+        meta.setAgentToolTimeoutMs(appAgentProperties.getToolTimeout().toMillis());
+        meta.setAgentLlmStreamTimeoutMs(appAgentProperties.getLlmStreamTimeout().toMillis());
     }
 
     private EvalChatResponse finalizeResponse(

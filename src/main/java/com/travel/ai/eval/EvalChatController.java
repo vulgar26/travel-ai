@@ -115,7 +115,9 @@ public class EvalChatController {
             body.setAnswer("请求体缺少非空字段 query。");
             body.setBehavior("clarify");
         }
-        body.setLatencyMs(System.currentTimeMillis() - startMs);
+        long latencyMs = System.currentTimeMillis() - startMs;
+        body.setLatencyMs(latencyMs);
+        evalChatService.applyLatencyBudgetToMeta(body, latencyMs);
         return body;
     }
 }
