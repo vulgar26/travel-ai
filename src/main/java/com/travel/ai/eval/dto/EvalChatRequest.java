@@ -36,7 +36,7 @@ public class EvalChatRequest {
     /** 可选：{@code success|timeout|error}，触发 TOOL 阶段串行 stub 与降级矩阵（评测专用）。 */
     private String evalToolScenario;
 
-    /** 可选：{@code empty|low_conf|…}，触发 {@code meta.low_confidence} 与 {@code reasons[]}（Day7）。 */
+    /** 可选：{@code empty|low_conf|…}，触发 {@code meta.low_confidence} 与 {@code meta.low_confidence_reasons[]}（Day7）。 */
     private String evalRagScenario;
 
     public String getQuery() {

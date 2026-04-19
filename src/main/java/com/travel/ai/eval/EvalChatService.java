@@ -36,7 +36,7 @@ import static com.travel.ai.eval.EvalRagGateScenarios.Kind;
  * {@link EvalLinearAgentPipeline}，输出 {@code meta.stage_order} / {@code step_count} / {@code replan_count}；
  * Day5 起对非空 query 执行 {@link EvalPlanParseCoordinator}（repair once + {@code plan_parse_attempts/outcome}）；
  * Day6 起在 TOOL 阶段串行执行 {@link EvalToolStageRunner}（超时/失败降级 + {@code tool} / {@code meta.tool_*} / {@code error_code}）。
- * Day7 起支持 {@link EvalRagGateScenarios}：空命中/低置信门控（P0 不启用 score 阈值），{@code meta.low_confidence} + {@code reasons[]}。
+ * Day7 起支持 {@link EvalRagGateScenarios}：空命中/低置信门控（P0 不启用 score 阈值），{@code meta.low_confidence} + {@code meta.low_confidence_reasons[]}。
  * Day9 起在 plan 解析成功后执行 {@link EvalQuerySafetyPolicy}：对抗/敏感句式稳定 {@code deny} 或 {@code clarify}，归因见 {@link EvalSafetyErrorCodes}。
  * <p>
  * eval-upgrade.md E7：在 {@link EvalMembershipHttpContext} 完整且存在 {@code retrieval_hits} 时写入
@@ -122,7 +122,7 @@ public class EvalChatService {
         if (gate.isPresent()) {
             EvalChatSafetyGate.Decision d = gate.get();
             meta.setEvalSafetyRuleId(d.ruleId());
-            meta.setReasons(d.reasons());
+            meta.setLowConfidenceReasons(d.reasons());
             meta.setStageOrder(List.of("PLAN", "GUARD"));
             meta.setStepCount(2);
             if ("clarify".equalsIgnoreCase(d.behavior())) {
@@ -165,7 +165,7 @@ public class EvalChatService {
             EvalQuerySafetyPolicy.Decision d = safety.get();
             meta.setStageOrder(List.of("PLAN", "GUARD"));
             meta.setStepCount(2);
-            meta.setReasons(d.reasons());
+            meta.setLowConfidenceReasons(d.reasons());
             response.setBehavior(d.behavior());
             if (d.errorCode() != null) {
                 response.setErrorCode(d.errorCode());
@@ -184,7 +184,7 @@ public class EvalChatService {
                     response.setErrorCode(decision.errorCode());
                 }
                 if (decision.reasons() != null && !decision.reasons().isEmpty()) {
-                    meta.setReasons(decision.reasons());
+                    meta.setLowConfidenceReasons(decision.reasons());
                 }
                 if ("clarify".equalsIgnoreCase(decision.behavior())) {
                     meta.setLowConfidence(true);
@@ -214,7 +214,7 @@ public class EvalChatService {
             meta.setStageOrder(List.of("PLAN", "RETRIEVE"));
             meta.setStepCount(2);
             meta.setLowConfidence(true);
-            meta.setReasons(EvalRagGateScenarios.REASONS_EMPTY_HITS);
+            meta.setLowConfidenceReasons(EvalRagGateScenarios.REASONS_EMPTY_HITS);
             response.setBehavior("clarify");
             response.setErrorCode(EvalRagGateScenarios.ERROR_CODE_RETRIEVE_EMPTY);
             response.setAnswer("检索零命中：请补充关键词/范围/上下文，或提供可引用资料后再继续。");
@@ -227,7 +227,7 @@ public class EvalChatService {
             meta.setStageOrder(List.of("PLAN", "RETRIEVE"));
             meta.setStepCount(2);
             meta.setLowConfidence(true);
-            meta.setReasons(EvalRagGateScenarios.REASONS_LOW_CONFIDENCE_BUSINESS);
+            meta.setLowConfidenceReasons(EvalRagGateScenarios.REASONS_LOW_CONFIDENCE_BUSINESS);
             response.setBehavior("clarify");
             response.setErrorCode(EvalRagGateScenarios.ERROR_CODE_RETRIEVE_LOW_CONFIDENCE);
             response.setAnswer("信息不足或指代不明：请补充目的地/日期/偏好，或说明你指的是哪个对象/项目。");
@@ -241,12 +241,12 @@ public class EvalChatService {
             meta.setLowConfidence(true);
             if (ragKind == Kind.EMPTY_HITS) {
                 meta.setRetrieveHitCount(0);
-                meta.setReasons(EvalRagGateScenarios.REASONS_EMPTY_HITS);
+                meta.setLowConfidenceReasons(EvalRagGateScenarios.REASONS_EMPTY_HITS);
                 response.setErrorCode(EvalRagGateScenarios.ERROR_CODE_RETRIEVE_EMPTY);
                 response.setAnswer("检索零命中，已门控为澄清（评测 stub，P0 未启用 score 阈值）。");
             } else {
                 meta.setRetrieveHitCount(1);
-                meta.setReasons(EvalRagGateScenarios.REASONS_LOW_CONFIDENCE);
+                meta.setLowConfidenceReasons(EvalRagGateScenarios.REASONS_LOW_CONFIDENCE);
                 response.setAnswer("证据置信不足，已门控为澄清（评测 stub，P0 未启用 score 阈值）。");
             }
             response.setBehavior("clarify");

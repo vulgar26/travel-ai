@@ -62,6 +62,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    AuthenticationProvider authenticationProvider,
+                                                   EvalGatewayAuthFilter evalGatewayAuthFilter,
                                                    JwtAuthFilter jwtAuthFilter,
                                                    RateLimitingFilter rateLimitingFilter) throws Exception {
                                                     
@@ -75,11 +76,12 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/error").permitAll()
                         .requestMatchers("/auth/login", "/actuator/health/**", "/actuator/info").permitAll()
-                        // 评测专用入口（P0）：Day1 骨架先放行；后续接入 X-Eval-Token + CIDR 后再收紧为鉴权链
-                        .requestMatchers("/api/v1/eval/**").permitAll()
+                        // 评测入口：EvalGatewayAuthFilter 校验 X-Eval-Gateway-Key 后注入主体，须 authenticated()
+                        .requestMatchers("/api/v1/eval/**").authenticated()
                         .anyRequest().authenticated()
                 )
                 .authenticationProvider(authenticationProvider)
+                .addFilterBefore(evalGatewayAuthFilter, JwtAuthFilter.class)
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 // 限流需要在 JwtAuthFilter 之后，这样才能拿到当前用户信息
                 .addFilterAfter(rateLimitingFilter, JwtAuthFilter.class);

@@ -112,4 +112,31 @@ class TravelAiApplicationIntegrationTest {
         ResponseEntity<String> res = restTemplate.getForEntity("/travel/chat/c1?query=hi", String.class);
         assertThat(res.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
+
+    @Test
+    void evalChatWithoutGatewayKeyReturns401() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        String body = "{\"query\":\"ping\"}";
+        HttpEntity<String> entity = new HttpEntity<>(body, headers);
+
+        ResponseEntity<String> res = restTemplate.postForEntity("/api/v1/eval/chat", entity, String.class);
+
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(res.getBody()).isNotNull().contains("EVAL_GATEWAY");
+    }
+
+    @Test
+    void evalChatWithGatewayKeyReturns200() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-Eval-Gateway-Key", "it-eval-gateway-key");
+        String body = "{\"query\":\"ping\"}";
+        HttpEntity<String> entity = new HttpEntity<>(body, headers);
+
+        ResponseEntity<String> res = restTemplate.postForEntity("/api/v1/eval/chat", entity, String.class);
+
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(res.getBody()).isNotNull().contains("\"behavior\"");
+    }
 }

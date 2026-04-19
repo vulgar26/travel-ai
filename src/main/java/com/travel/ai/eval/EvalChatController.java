@@ -12,8 +12,8 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * 评测专用入口（P0）：{@code POST /api/v1/eval/chat}，<strong>非流式</strong>、一次性 JSON 返回。
  * <p>
- * <b>Day1 交付</b>：契约与序列化（snake_case）正确；业务为占位说明文案。安全门控（{@code X-Eval-Token}、CIDR 等）按
- * {@code plans/eval-upgrade.md} 在后续迭代接入。
+ * <b>网关</b>：须带请求头 {@code X-Eval-Gateway-Key}，与 {@code app.eval.gateway-key}（环境变量 {@code APP_EVAL_GATEWAY_KEY}）一致；
+ * 与参与 membership HMAC 的 {@code X-Eval-Token} 分离。未配置网关密钥时评测路径一律 401。
  *
  * <h2>最小请求示例（curl，Windows PowerShell 可把单引号改为双引号并转义内部引号）</h2>
  * <pre>{@code
@@ -70,9 +70,9 @@ import org.springframework.web.bind.annotation.RestController;
  * {@code tool.used=true}，{@code tool.outcome=timeout|error}。</p>
  *
  * <h2>Day7：{@code eval_rag_scenario} 空命中 / 低置信门控（P0 无 score 阈值）</h2>
- * <p>{@code eval_rag_scenario=empty}：{@code meta.low_confidence=true}，{@code meta.reasons[]} 非空，
+ * <p>{@code eval_rag_scenario=empty}：{@code meta.low_confidence=true}，{@code meta.low_confidence_reasons[]} 非空，
  * {@code meta.retrieve_hit_count=0}，{@code error_code=RETRIEVE_EMPTY}，{@code behavior=clarify}。</p>
- * <p>{@code eval_rag_scenario=low_conf}：同上低置信与 reasons，命中数 stub 为 1；不设 {@code error_code}（与空命中区分）。</p>
+ * <p>{@code eval_rag_scenario=low_conf}：同上低置信与 {@code low_confidence_reasons}，命中数 stub 为 1；不设 {@code error_code}（与空命中区分）。</p>
  *
  * <h2>Day9：输入鲁棒性（归因稳定）</h2>
  * <p>Plan 解析成功后对 {@code query} 做高置信安全筛查：典型对抗句式 → {@code behavior=deny}，

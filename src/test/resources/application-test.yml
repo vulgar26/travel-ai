@@ -8,6 +8,11 @@ app:
   security:
     jwt:
       secret: test-jwt-secret-must-be-at-least-32-chars-long
+  eval:
+    gateway-key: it-eval-gateway-key
+  agent:
+    plan-stage:
+      enabled: false
   # 集成测试可能多次调登录/业务接口，放宽限流避免 CI 偶发 429
   rate-limit:
     chat:

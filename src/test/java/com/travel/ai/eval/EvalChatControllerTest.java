@@ -342,7 +342,7 @@ class EvalChatControllerTest {
     }
 
     /**
-     * Day7 证据：rag/empty — {@code low_confidence=true}，{@code reasons} 非空，{@code RETRIEVE_EMPTY}。
+     * Day7 证据：rag/empty — {@code low_confidence=true}，{@code low_confidence_reasons} 非空，{@code RETRIEVE_EMPTY}。
      */
     @Test
     void evalRagScenario_emptyHits_sample() throws Exception {
@@ -354,15 +354,15 @@ class EvalChatControllerTest {
                 .andExpect(jsonPath("$.behavior").value("clarify"))
                 .andExpect(jsonPath("$.error_code").value(EvalRagGateScenarios.ERROR_CODE_RETRIEVE_EMPTY))
                 .andExpect(jsonPath("$.meta.low_confidence").value(true))
-                .andExpect(jsonPath("$.meta.reasons.length()").value(EvalRagGateScenarios.REASONS_EMPTY_HITS.size()))
-                .andExpect(jsonPath("$.meta.reasons[0]").value(EvalRagGateScenarios.REASONS_EMPTY_HITS.get(0)))
+                .andExpect(jsonPath("$.meta.low_confidence_reasons.length()").value(EvalRagGateScenarios.REASONS_EMPTY_HITS.size()))
+                .andExpect(jsonPath("$.meta.low_confidence_reasons[0]").value(EvalRagGateScenarios.REASONS_EMPTY_HITS.get(0)))
                 .andExpect(jsonPath("$.meta.retrieve_hit_count").value(0))
                 .andExpect(jsonPath("$.meta.step_count").value(2))
                 .andExpect(jsonPathAbsentOrNull("$.tool"));
     }
 
     /**
-     * Day7 证据：低置信 — {@code low_confidence=true}，{@code reasons} 非空（P0 不按 score 阈值）。
+     * Day7 证据：低置信 — {@code low_confidence=true}，{@code low_confidence_reasons} 非空（P0 不按 score 阈值）。
      */
     @Test
     void evalRagScenario_lowConfidence_sample() throws Exception {
@@ -374,7 +374,7 @@ class EvalChatControllerTest {
                 .andExpect(jsonPath("$.behavior").value("clarify"))
                 .andExpect(jsonPathAbsentOrNull("$.error_code"))
                 .andExpect(jsonPath("$.meta.low_confidence").value(true))
-                .andExpect(jsonPath("$.meta.reasons.length()").value(EvalRagGateScenarios.REASONS_LOW_CONFIDENCE.size()))
+                .andExpect(jsonPath("$.meta.low_confidence_reasons.length()").value(EvalRagGateScenarios.REASONS_LOW_CONFIDENCE.size()))
                 .andExpect(jsonPath("$.meta.retrieve_hit_count").value(1))
                 .andExpect(jsonPathAbsentOrNull("$.tool"));
     }
@@ -395,7 +395,7 @@ class EvalChatControllerTest {
                 .andExpect(jsonPath("$.meta.stage_order[0]").value("PLAN"))
                 .andExpect(jsonPath("$.meta.stage_order[1]").value("GUARD"))
                 .andExpect(jsonPath("$.meta.step_count").value(2))
-                .andExpect(jsonPath("$.meta.reasons.length()").value(2))
+                .andExpect(jsonPath("$.meta.low_confidence_reasons.length()").value(2))
                 .andExpect(jsonPathAbsentOrNull("$.tool"));
     }
 
@@ -412,7 +412,7 @@ class EvalChatControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.behavior").value("deny"))
                 .andExpect(jsonPath("$.error_code").value(EvalSafetyErrorCodes.TOOL_OUTPUT_INJECTION_QUERY_BLOCKED))
-                .andExpect(jsonPath("$.meta.reasons[0]").value("safety:tool_output_injection_marker"));
+                .andExpect(jsonPath("$.meta.low_confidence_reasons[0]").value("safety:tool_output_injection_marker"));
     }
 
     /**
@@ -428,6 +428,6 @@ class EvalChatControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.behavior").value("clarify"))
                 .andExpect(jsonPathAbsentOrNull("$.error_code"))
-                .andExpect(jsonPath("$.meta.reasons[0]").value("safety:long_context_policy_clarify"));
+                .andExpect(jsonPath("$.meta.low_confidence_reasons[0]").value("safety:long_context_policy_clarify"));
     }
 }

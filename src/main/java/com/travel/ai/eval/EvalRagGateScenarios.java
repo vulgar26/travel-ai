@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Day7：评测用 RAG 门控场景（P0 不启用 score 阈值，仅用结构化 {@code reasons[]} 说明）。
+ * Day7：评测用 RAG 门控场景（P0 不启用 score 阈值，仅用结构化 {@code low_confidence_reasons[]} 说明）。
  * <p>
  * 对齐 {@code plans/travel-ai-upgrade.md}：空命中 / 低置信时 {@code meta.low_confidence=true}，{@code behavior} 以 clarify 结束。
  */

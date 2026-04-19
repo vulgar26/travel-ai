@@ -82,9 +82,9 @@ public class EvalChatMeta {
     private Boolean lowConfidence;
 
     /**
-     * 门控原因枚举式说明（非空时可回归）；未触发门控时不返回。
+     * 低置信 / 门控原因列表（与 Vagent 常见字段 {@code low_confidence_reasons} 对齐，JSON snake_case）。
      */
-    private List<String> reasons;
+    private List<String> lowConfidenceReasons;
 
     /**
      * 仅在 SafetyGate 规则短路时写入，用于报表分桶与归因。
@@ -238,12 +238,12 @@ public class EvalChatMeta {
         this.lowConfidence = lowConfidence;
     }
 
-    public List<String> getReasons() {
-        return reasons;
+    public List<String> getLowConfidenceReasons() {
+        return lowConfidenceReasons;
     }
 
-    public void setReasons(List<String> reasons) {
-        this.reasons = reasons;
+    public void setLowConfidenceReasons(List<String> lowConfidenceReasons) {
+        this.lowConfidenceReasons = lowConfidenceReasons;
     }
 
     public String getEvalSafetyRuleId() {

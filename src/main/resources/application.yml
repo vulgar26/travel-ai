@@ -98,5 +98,11 @@ app:
     # 向量检索零命中时主线行为（对齐 travel-ai-upgrade P0 默认）：clarify=不调 LLM 编造行程，仅返回澄清话术
     empty-hits-behavior: clarify
   eval:
+    # 评测 HTTP 网关密钥：请求头 X-Eval-Gateway-Key 须与本值一致（与 X-Eval-Token 分离；后者仍用于 membership HMAC）
+    gateway-key: ${APP_EVAL_GATEWAY_KEY:}
     # 评测 TOOL 阶段 stub 超时阈值（毫秒）；timeout 场景下工作线程睡眠长于该值以触发 TOOL_TIMEOUT
     tool-timeout-ms: 100
+  agent:
+    plan-stage:
+      # 主线 PLAN 是否调用 LLM 产出 JSON（集成测试默认关，见 application-test.yml）
+      enabled: ${APP_AGENT_PLAN_STAGE_ENABLED:true}

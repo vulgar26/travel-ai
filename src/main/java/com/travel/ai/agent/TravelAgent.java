@@ -1,6 +1,8 @@
 package com.travel.ai.agent;
 
 import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
+import com.travel.ai.agent.guard.RetrieveEmptyHitGate;
+import com.travel.ai.agent.plan.MainLinePlanProposer;
 import com.travel.ai.config.RedisChatMemory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,7 +40,7 @@ import static com.travel.ai.tools.ToolObservability.log;
  * {@code PLAN → RETRIEVE → TOOL → GUARD → WRITE}，由 {@link TravelAgent#runLinearStages(MainAgentTurnContext)}
  * 唯一串行调用；禁止用「阶段名 → 处理器」的 Map 或动态跳转驱动执行（避免退化成 DAG/状态机）。
  * <p>
- * 大白话：用户一问进来，服务端按固定几步处理——先占位计划、再查资料、再按需调工具、再过门控（默认「知识库零命中则澄清不调 LLM」）、最后才调大模型流式写回答。
+ * 大白话：用户一问进来，服务端按固定几步处理——先产出结构化计划（可配置调用 LLM）、再查资料、再按需调工具、再过门控（默认「知识库零命中则澄清不调 LLM」）、最后才调大模型流式写回答。
  * <p>
  * 检索合并阶段使用 {@link #mergeAndDedupeDocuments(List, int)}：按文档 id（无 id 时退化为正文 hash）
  * 显式去重，避免依赖 {@link Document#equals} 实现细节（UPGRADE P2-2）。
@@ -47,9 +49,6 @@ import static com.travel.ai.tools.ToolObservability.log;
 public class TravelAgent {
 
     private static final Logger log = LoggerFactory.getLogger(TravelAgent.class);
-
-    /** 与 eval / travel-ai-upgrade 归因一致，便于日志与客户端解析。 */
-    private static final String ERROR_CODE_RETRIEVE_EMPTY = "RETRIEVE_EMPTY";
 
     /** 合并后进入 prompt 的文档条数上限 */
     private static final int MAX_CONTEXT_DOCS = 5;
@@ -61,6 +60,10 @@ public class TravelAgent {
     private final WeatherTool weatherTool;
     private final com.travel.ai.tools.ToolCircuitBreaker toolCircuitBreaker;
     private final com.travel.ai.tools.ToolRateLimiter toolRateLimiter;
+    private final MainLinePlanProposer mainLinePlanProposer;
+
+    @Value("${app.agent.plan-stage.enabled:true}")
+    private boolean planStageLlmEnabled;
 
     @Value("${app.tools.weather.enabled:true}")
     private boolean weatherToolEnabled;
@@ -95,13 +98,15 @@ public class TravelAgent {
                        QueryRewriter queryRewriter,
                        WeatherTool weatherTool,
                        com.travel.ai.tools.ToolCircuitBreaker toolCircuitBreaker,
-                       com.travel.ai.tools.ToolRateLimiter toolRateLimiter) {
+                       com.travel.ai.tools.ToolRateLimiter toolRateLimiter,
+                       MainLinePlanProposer mainLinePlanProposer) {
         this.chatMemory = chatMemory;
         this.vectorStore = vectorStore;
         this.queryRewriter = queryRewriter;
         this.weatherTool = weatherTool;
         this.toolCircuitBreaker = toolCircuitBreaker;
         this.toolRateLimiter = toolRateLimiter;
+        this.mainLinePlanProposer = mainLinePlanProposer;
         this.chatClient = builder
                 .defaultSystem(SYSTEM_PROMPT)
                 .defaultAdvisors(
@@ -131,8 +136,13 @@ public class TravelAgent {
         runLinearStages(ctx);
 
         if (ctx.skipLlmForEmptyHits) {
+            String gateCode = ctx.emptyHitsGateLogCode != null
+                    ? ctx.emptyHitsGateLogCode
+                    : RetrieveEmptyHitGate.ERROR_CODE_RETRIEVE_EMPTY;
             log.info("SKIP_LLM empty_hits_gate error_code={} would_prompt_chars={} requestId={}",
-                    ERROR_CODE_RETRIEVE_EMPTY, ctx.finalPromptForLlm.length(), requestId);
+                    gateCode, ctx.finalPromptForLlm.length(), requestId);
+            // 必须同步写入：挂在 Flux doOnComplete 上会与 merge/then 多订阅叠加，出现重复 add（Redis 多条相同轮次）。
+            appendTurnToMemory(ctx);
         } else {
             log.info("最终 prompt 字符数={}", ctx.finalPromptForLlm.length());
         }
@@ -175,13 +185,29 @@ public class TravelAgent {
     }
 
     /**
-     * PLAN：当前为隐式单步「写作」计划（尚无 LLM 产出结构化 Plan JSON）；仅占位与可观测。
+     * PLAN：调用 {@link MainLinePlanProposer} 产出结构化 Plan JSON（与后续 RETRIEVE/TOOL 并行写入 prompt）；
+     * {@code app.agent.plan-stage.enabled=false} 或模型失败时使用本地降级 JSON，仍保证管线可观测与下游一致形状。
      */
     private void stagePlan(MainAgentTurnContext ctx) {
         long t0 = System.nanoTime();
-        log.info("[stage] PLAN start (implicit_single_write) requestId={}", ctx.requestId);
-        log.info("[stage] PLAN note=P0-2_will_add_llm_plan_json requestId={}", ctx.requestId);
+        log.info("[stage] PLAN start requestId={}", ctx.requestId);
+        if (planStageLlmEnabled) {
+            try {
+                ctx.planJson = mainLinePlanProposer.proposePlanJson(ctx.userMessage, ctx.requestId);
+                log.info("[stage] PLAN source=llm requestId={}", ctx.requestId);
+            } catch (Exception e) {
+                ctx.planJson = fallbackPlanJson("llm_failed");
+                log.warn("[stage] PLAN source=fallback_llm_error requestId={} error={}", ctx.requestId, e.toString());
+            }
+        } else {
+            ctx.planJson = fallbackPlanJson("plan_stage_disabled");
+            log.info("[stage] PLAN source=config_disabled requestId={}", ctx.requestId);
+        }
         logStageBoundary("PLAN", t0, ctx.requestId);
+    }
+
+    private static String fallbackPlanJson(String rationale) {
+        return "{\"intent\":\"（配置或降级）\",\"steps\":[\"RETRIEVE\",\"WRITE\"],\"rationale\":\"" + rationale + "\"}";
     }
 
     /**
@@ -237,7 +263,7 @@ public class TravelAgent {
     }
 
     /**
-     * TOOL：系统受控工具（当前仅天气白名单）；产出 {@code toolPreface} 并与 {@code promptBase} 合并为 {@code finalPromptForLlm}。
+     * TOOL：系统受控工具（当前仅天气白名单）；产出 {@code toolPreface}，与 PLAN 的 {@code planJson} 及 {@code promptBase} 合并为 {@code finalPromptForLlm}。
      */
     private void stageTool(MainAgentTurnContext ctx) {
         long t0 = System.nanoTime();
@@ -295,43 +321,45 @@ public class TravelAgent {
                     + "\nEND_TOOL_DATA\n\n";
         }
 
-        ctx.finalPromptForLlm = ctx.toolPreface.isEmpty() ? ctx.promptBase : ctx.toolPreface + ctx.promptBase;
+        String planBlock = (ctx.planJson != null && !ctx.planJson.isBlank())
+                ? "【本轮执行计划（结构化，须遵守）】\n" + ctx.planJson + "\n\n"
+                : "";
+        ctx.finalPromptForLlm = ctx.toolPreface.isEmpty()
+                ? planBlock + ctx.promptBase
+                : ctx.toolPreface + planBlock + ctx.promptBase;
 
         logStageBoundary("TOOL", t0, ctx.requestId);
     }
 
     /**
-     * GUARD：检索零命中门控（P0 默认 clarify）；若 TOOL 阶段已注入非空工具数据块（如天气），则不拦截，避免误伤「仅问天气」类请求。
+     * GUARD：检索零命中门控（P0 默认 clarify）；仅当 TOOL 的 {@code BEGIN_TOOL_DATA} 与 {@code END_TOOL_DATA} 之间有<strong>非空</strong>正文时放行 LLM，
+     * 避免「工具 outcome=ERROR 且 payload 空」仍走大模型编造实时天气。
      */
     private void stageGuard(MainAgentTurnContext ctx) {
         long t0 = System.nanoTime();
         log.info("[stage] GUARD start requestId={}", ctx.requestId);
 
-        boolean zeroHits = ctx.docs == null || ctx.docs.isEmpty();
-        boolean noToolObservation = ctx.toolPreface == null || ctx.toolPreface.isBlank();
-        if ("clarify".equalsIgnoreCase(emptyHitsBehavior.trim()) && zeroHits && noToolObservation) {
-            ctx.skipLlmForEmptyHits = true;
-            ctx.emptyHitsClarifyBody = """
-                    检索零命中：请补充关键词/范围/上下文，或提供可引用资料后再继续。
-                    （error_code=%s）
-                    """.formatted(ERROR_CODE_RETRIEVE_EMPTY).trim();
-            log.info("[guard] empty_hits gate=clarify error_code={} requestId={}", ERROR_CODE_RETRIEVE_EMPTY, ctx.requestId);
-        } else {
-            ctx.skipLlmForEmptyHits = false;
-            if (zeroHits && !noToolObservation) {
-                log.info("[guard] empty_hits skipped gate tool_preface_present requestId={}", ctx.requestId);
-            } else if (!zeroHits) {
-                log.debug("[guard] retrieve_hits>0 requestId={}", ctx.requestId);
-            } else if (!"clarify".equalsIgnoreCase(emptyHitsBehavior.trim())) {
-                log.info("[guard] empty_hits_behavior={} no_clarify_gate requestId={}", emptyHitsBehavior, ctx.requestId);
-            }
+        RetrieveEmptyHitGate.Decision d = RetrieveEmptyHitGate.decide(ctx.docs, ctx.toolPreface, emptyHitsBehavior);
+        ctx.skipLlmForEmptyHits = d.skipLlm();
+        ctx.emptyHitsClarifyBody = d.clarifyBody() != null ? d.clarifyBody() : "";
+        ctx.emptyHitsGateLogCode = d.skipGateErrorCode();
+        switch (d.reason()) {
+            case APPLIED_CLARIFY_RAG_EMPTY, APPLIED_CLARIFY_TOOL_NO_PAYLOAD -> log.info(
+                    "[guard] empty_hits gate=clarify error_code={} requestId={}",
+                    d.skipGateErrorCode(), ctx.requestId);
+            case SKIPPED_TOOL_SUBSTANTIVE_PAYLOAD -> log.info(
+                    "[guard] empty_hits skipped gate tool_data_present requestId={}", ctx.requestId);
+            case SKIPPED_HAS_RETRIEVAL_HITS -> log.debug("[guard] retrieve_hits>0 requestId={}", ctx.requestId);
+            case SKIPPED_NOT_CLARIFY_MODE -> log.info(
+                    "[guard] empty_hits_behavior={} no_clarify_gate requestId={}", emptyHitsBehavior, ctx.requestId);
         }
 
         logStageBoundary("GUARD", t0, ctx.requestId);
     }
 
     /**
-     * WRITE：调用 ChatClient 流式生成（Reactor {@link Flux}）；与心跳共享同一 {@code share()} 上游，避免重复触发 LLM。
+     * WRITE：调用 ChatClient 流式生成（Reactor {@link Flux}）；与心跳共享同一多播上游（LLM 路径 {@code share()}；门控澄清路径 {@code cache()}）。
+     * 门控路径的 {@link #appendTurnToMemory} 在 {@link #chat} 中于订阅前同步调用，不在此链路的 {@code doOnComplete} 上挂载。
      */
     private Flux<String> stageWrite(
             MainAgentTurnContext ctx,
@@ -351,7 +379,6 @@ public class TravelAgent {
                             log.info("[perf] llm_first_token_ms={} requestId={} (clarify_only)", ttftMs, ctx.requestId);
                         }
                     })
-                    .doOnComplete(() -> appendTurnToMemory(ctx))
                     .doFinally(signal -> {
                         if (llmStartNs.get() != 0L) {
                             long wallMs = (System.nanoTime() - llmStartNs.get()) / 1_000_000L;
@@ -359,7 +386,8 @@ public class TravelAgent {
                         }
                         logStageBoundary("WRITE", t0, ctx.requestId);
                     })
-                    .share();
+                    // cache：与 merge(..., takeUntilOther(contentFlux.then())) 多路订阅兼容，避免 share refcount 二次订阅导致 doFinally/perf 打两次
+                    .cache();
         }
 
         log.info("[stage] WRITE start requestId={}", ctx.requestId);
@@ -394,8 +422,12 @@ public class TravelAgent {
 
     /**
      * 零命中门控路径未经过 ChatClient，需自行写入本轮 user/assistant，与 {@link MessageChatMemoryAdvisor} 行为对齐。
+     * 由 {@link #chat} 在 {@code skipLlmForEmptyHits} 分支同步调用一次（勿再挂到响应式 {@code doOnComplete}，以免多订阅重复写入 Redis）。
      */
     private void appendTurnToMemory(MainAgentTurnContext ctx) {
+        if (!ctx.emptyHitsMemoryWritten.compareAndSet(false, true)) {
+            return;
+        }
         try {
             chatMemory.add(ctx.conversationId, List.of(
                     new UserMessage(ctx.userMessage),
@@ -429,9 +461,18 @@ public class TravelAgent {
         /** SSE 首包「引用片段」正文。 */
         String citationBlock;
 
+        /** PLAN 阶段产出的 JSON 文本（含 {@code steps} 数组），并入 WRITE 前最终 prompt。 */
+        String planJson;
+
         /** 检索零命中且策略为 clarify 时跳过 LLM，仅下发固定澄清。 */
         boolean skipLlmForEmptyHits;
         String emptyHitsClarifyBody;
+        /** 与 {@link RetrieveEmptyHitGate.Decision#skipGateErrorCode()} 对齐，仅 skip LLM 时有值。 */
+        String emptyHitsGateLogCode;
+        /**
+         * 门控澄清路径下 {@link #appendTurnToMemory} 挂在 Reactor {@code doOnComplete} 上；merge/多订阅可能触发多次 complete，需保证 Redis 只追加一轮。
+         */
+        final AtomicBoolean emptyHitsMemoryWritten = new AtomicBoolean(false);
 
         MainAgentTurnContext(String conversationId, String userMessage, String requestId) {
             this.conversationId = conversationId;
@@ -439,6 +480,7 @@ public class TravelAgent {
             this.requestId = requestId;
             this.toolPreface = "";
             this.skipLlmForEmptyHits = false;
+            this.planJson = "";
         }
     }
 
