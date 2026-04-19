@@ -81,8 +81,9 @@ public class SecurityConfig {
                         .anyRequest().authenticated()
                 )
                 .authenticationProvider(authenticationProvider)
-                .addFilterBefore(evalGatewayAuthFilter, JwtAuthFilter.class)
+                // 须先把 JwtAuthFilter 挂进链，再以它为锚注册 EvalGateway；否则 Boot 6 报 “does not have a registered order”
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(evalGatewayAuthFilter, JwtAuthFilter.class)
                 // 限流需要在 JwtAuthFilter 之后，这样才能拿到当前用户信息
                 .addFilterAfter(rateLimitingFilter, JwtAuthFilter.class);
 

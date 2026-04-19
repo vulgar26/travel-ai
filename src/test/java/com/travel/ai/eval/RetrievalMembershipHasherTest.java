@@ -28,4 +28,13 @@ class RetrievalMembershipHasherTest {
                 token, "travel-ai", "ds_1", "case_1", List.of("a-id", "z-id"));
         assertEquals(a, b);
     }
+
+    @Test
+    void hitIdHashMatchesCanonicalChunkIdPolicy() throws Exception {
+        String token = "x-eval-token-unit-test-32bytes!!!";
+        byte[] kCase = RetrievalMembershipHasher.deriveKCase(token, "travel-ai", "ds_1", "case_1");
+        String lower = RetrievalMembershipHasher.hitIdHashHex(kCase, "Doc-Chunk-A");
+        String mixed = RetrievalMembershipHasher.hitIdHashHex(kCase, "  DOC-chunk-a  ");
+        assertEquals(lower, mixed);
+    }
 }

@@ -17,6 +17,7 @@ import org.slf4j.LoggerFactory;
 public class WeatherTool {
 
     private static final Logger log = LoggerFactory.getLogger(WeatherTool.class);
+    private final AppAgentProperties appAgentProperties;
     @Value("${weather.api-key}")
     private String apiKey;
 

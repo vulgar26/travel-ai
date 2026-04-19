@@ -57,12 +57,12 @@ public class EvalGatewayAuthFilter extends OncePerRequestFilter {
                     "Missing or invalid " + HEADER + ".");
             return;
         }
+        // Spring Security 6：三参构造（含 authorities）已视为已认证，禁止再 setAuthenticated(true)，否则抛 IllegalArgumentException
         var auth = new UsernamePasswordAuthenticationToken(
                 "eval-gateway",
                 null,
                 List.of(new SimpleGrantedAuthority("ROLE_EVAL_GATEWAY"))
         );
-        auth.setAuthenticated(true);
         SecurityContextHolder.getContext().setAuthentication(auth);
         filterChain.doFilter(request, response);
     }

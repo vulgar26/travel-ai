@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.TreeSet;
 
 /**
@@ -17,6 +18,17 @@ public final class RetrievalMembershipHasher {
     private static final String KEY_PREFIX = "hitid-key/v1|";
 
     private RetrievalMembershipHasher() {
+    }
+
+    /**
+     * 与 vagent-eval {@code CitationMembership.canonicalChunkId} 对齐：trim + {@link Locale#ROOT} 小写，
+     * 保证 {@code sources[*].id} 与 {@code meta.retrieval_hit_id_hashes[]} 派生口径一致。
+     */
+    public static String canonicalChunkId(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        return raw.trim().toLowerCase(Locale.ROOT);
     }
 
     /**
@@ -34,9 +46,10 @@ public final class RetrievalMembershipHasher {
      * {@code hitIdHash = HMAC-SHA256(k_case, hitId)}，输出 64 位小写 hex。
      */
     public static String hitIdHashHex(byte[] kCase, String hitId) throws GeneralSecurityException {
+        String canonical = canonicalChunkId(hitId);
         Mac mac = Mac.getInstance(HMAC_SHA256);
         mac.init(new SecretKeySpec(kCase, HMAC_SHA256));
-        byte[] raw = mac.doFinal(hitId.getBytes(StandardCharsets.UTF_8));
+        byte[] raw = mac.doFinal(canonical.getBytes(StandardCharsets.UTF_8));
         return toLowerHex(raw);
     }
 
