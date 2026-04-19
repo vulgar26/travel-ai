@@ -2,7 +2,7 @@
 
 **维护约定**：以 `src/main/java` 与 `application*.yml` 为真源；本文件随合入更新。**外部计划**路径：`D:\Projects\Vagent\plans\travel-ai-upgrade.md`（不在本仓库内，此处仅摘要对照）。
 
-**更新日期**：2026-04-19（agent 超时配置收口）
+**更新日期**：2026-04-20（§4/§5 与代码真源同步）
 
 ---
 
@@ -51,19 +51,26 @@
 
 ## 4. 明确未做或仅部分覆盖（后续迭代）
 
-以下在 `travel-ai-upgrade.md` 中出现，但**本仓尚未**完整落地或仅局部存在：
+以下在 `travel-ai-upgrade.md` 或本仓 `STATUS.md` 中仍为**缺口 / 大项未闭合**（其它已收口项见 §1–§3 表格，勿与本节重复）：
 
-- **评测整段 HTTP 强制中断**：`latency_ms` 仍可能大于 `agent_total_timeout_ms`（未在评测线程上套 `total-timeout`）；`EvalToolStageRunner` 的 timeout stub 已与 `app.agent.tool-timeout` 取 min。
 - **Reflection / recovery**（一次性反思）、`self_check` JSON、`meta.recovery_action`。
 - **长期记忆** `user_profile` / 保留期 / 删除权（文档 P0 整节隐私治理）。
-- **主线与评测**阶段顺序已统一为 **`…TOOL→GUARD→WRITE`**（`TravelAgent` 与 `EvalLinearAgentPipeline` 一致）。  
 - **按 plan `steps` 物理跳过阶段**：与当前 P0「固定五次调用」类注释一致，**未做**；若要做须改契约与测试（见 `TravelAgent` 类注释与外部计划 P0-1）。
+- **`conversationId` 归口**：仍多由客户端传入，缺少服务端生成与所有权强校验（见 `docs/STATUS.md`）。
+- **SSE 与评测的 plan 可观测性差异**：主线 PLAN 解析结论在日志字段 **`[plan]`** `plan_parse_outcome` / `plan_parse_attempts`（与评测 `meta.plan_parse_*` 口径一致）；**未**在 SSE HTTP 响应体中回显 `plan_parse_*`（若要对齐 harness 再立项）。
 
 ---
 
 ## 5. 建议的下一步（与外部计划对齐的优先级）
 
-1. **配置收口（续）**：`app.eval.*` 已收口为 **`AppEvalProperties`**（网关密钥、`tool-timeout-ms`、`stub-work-sleep-ms`）；TOOL stub deadline 仍与 `AppAgentProperties` 取 min；整段 `total-timeout` 已接。  
-2. **阶段顺序**：SSOT 为 **`…GUARD→WRITE`**；若将来调整 SSE 编排，须同步 `EvalLinearAgentPipeline`、`EvalChatService` 中手工 `stage_order` 与契约测试。  
-3. **外部计划对齐**：`D:\Projects\Vagent\plans\travel-ai-upgrade.md` 已扩充 §「与 eval 的对接」：**`X-Eval-Gateway-Key`** / `APP_EVAL_GATEWAY_KEY`、`AGENT_TOTAL_TIMEOUT`、meta 超时对账、TOOL stub min 规则；并修正阶段顺序为 **`…GUARD→WRITE`** 的表述。  
-4. **P0-2 加深（续）**：按 `steps` 物理跳过阶段、SSE 回显 `plan_parse_*` 等（主线已与 `PlanParseCoordinator` / `PlanV1` 对齐）。  
+**已收口（原 §5 1–3，仅留档）**：`AppEvalProperties`（`app.eval.*`）；评测整段 **`app.agent.total-timeout`** 硬中断（`AGENT_TOTAL_TIMEOUT`）；评测与主线阶段顺序 **`…TOOL→GUARD→WRITE`**；外部 `travel-ai-upgrade.md` §「与 eval 的对接」已补网关与超时表述。
+
+**当前推荐执行顺序**：
+
+1. **`conversationId` 服务端生成与所有权校验**（安全与产品边界，见 `STATUS.md`）。  
+2. **按 `plan.steps` 物理跳过阶段**（大契约：主线 + 评测 + 数据集 + 文档同步）。  
+3. **Reflection / recovery**（`meta.recovery_action` 等，依赖 eval 契约）。  
+4. **长期记忆与隐私治理**（`user_profile`、保留期、删除权）。  
+5. **工程债**：部分接口错误体统一 JSON、`docs/UPGRADE_PLAN.md` 中尚未收口项。
+
+**维护提醒**：若调整 SSE 线性阶段顺序，须同步 `EvalLinearAgentPipeline`、`EvalChatService` 中手工 `stage_order` 与相关契约测试。  
