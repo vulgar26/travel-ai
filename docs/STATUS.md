@@ -33,7 +33,7 @@ Spring Boot 3 + Spring AI（DashScope）的 **出行规划演示后端**：**JWT
 
 - **`conversationId`**：仍主要由客户端传入，缺少服务端生成与所有权强校验。  
 - **部分接口错误体**：上传等路径返回形态未必统一 JSON（见历史债）。  
-- **主线 vs 评测阶段顺序**：评测 stub 为 `…TOOL→WRITE→GUARD`，主线为 `…TOOL→GUARD→WRITE`，报表对齐时需注意（详见矩阵文档）。  
+- **阶段顺序**：评测 stub 与主线均为 `…TOOL→GUARD→WRITE`（详见 `IMPLEMENTATION_MATRIX.md`）。  
 - **未配置 `APP_EVAL_GATEWAY_KEY`** 时：评测路径全部 401（有意防误暴露）。
 
 ---

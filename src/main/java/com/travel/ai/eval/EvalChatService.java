@@ -11,10 +11,7 @@ import com.travel.ai.eval.dto.EvalGuardrailsCapability;
 import com.travel.ai.eval.dto.EvalRetrievalCapability;
 import com.travel.ai.eval.dto.EvalStreamingCapability;
 import com.travel.ai.eval.dto.EvalToolsCapability;
-import com.travel.ai.config.AppAgentProperties;
 import com.travel.ai.eval.planrepair.EvalPlanParseCoordinator;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.ai.document.Document;
@@ -48,43 +45,21 @@ import static com.travel.ai.eval.EvalRagGateScenarios.Kind;
 @Service
 public class EvalChatService {
 
-    private static final Logger log = LoggerFactory.getLogger(EvalChatService.class);
-
     private final EvalPlanParseCoordinator planParseCoordinator;
     private final EvalToolStageRunner evalToolStageRunner;
     private final ObjectProvider<com.travel.ai.agent.QueryRewriter> queryRewriter;
     private final ObjectProvider<VectorStore> vectorStore;
-    private final AppAgentProperties appAgentProperties;
 
     public EvalChatService(
             EvalPlanParseCoordinator planParseCoordinator,
             EvalToolStageRunner evalToolStageRunner,
             ObjectProvider<com.travel.ai.agent.QueryRewriter> queryRewriter,
-            ObjectProvider<VectorStore> vectorStore,
-            AppAgentProperties appAgentProperties
+            ObjectProvider<VectorStore> vectorStore
     ) {
         this.planParseCoordinator = planParseCoordinator;
         this.evalToolStageRunner = evalToolStageRunner;
         this.queryRewriter = queryRewriter;
         this.vectorStore = vectorStore;
-        this.appAgentProperties = appAgentProperties;
-    }
-
-    /**
-     * 在 Controller 写入 {@code latency_ms} 后调用：与 {@code app.agent.total-timeout} 对比并写入
-     * {@code meta.agent_latency_budget_exceeded}。
-     */
-    public void applyLatencyBudgetToMeta(EvalChatResponse response, long latencyMs) {
-        EvalChatMeta m = response.getMeta();
-        if (m == null || m.getAgentTotalTimeoutMs() == null) {
-            return;
-        }
-        boolean exceeded = latencyMs > m.getAgentTotalTimeoutMs();
-        m.setAgentLatencyBudgetExceeded(exceeded);
-        if (exceeded) {
-            log.warn("[eval] latency_ms={} exceeds agent_total_timeout_ms={} request_id={}",
-                    latencyMs, m.getAgentTotalTimeoutMs(), m.getRequestId());
-        }
     }
 
     /**
@@ -217,7 +192,7 @@ public class EvalChatService {
                     meta.setStepCount(2);
                 } else if ("tool".equalsIgnoreCase(decision.behavior())) {
                     // 与默认线性流水线保持一致，避免 eval 对 meta.stage_order 的隐含期望造成 tool_succeeded=false。
-                    meta.setStageOrder(List.of("PLAN", "RETRIEVE", "TOOL", "WRITE", "GUARD"));
+                    meta.setStageOrder(List.of("PLAN", "RETRIEVE", "TOOL", "GUARD", "WRITE"));
                     meta.setStepCount(5);
                     EvalChatResultTool toolDto = new EvalChatResultTool();
                     toolDto.setRequired(true);
@@ -346,13 +321,6 @@ public class EvalChatService {
         return finalizeResponse(response, membershipCtx, evidence);
     }
 
-    private void stampAgentRuntimeOnMeta(EvalChatMeta meta) {
-        meta.setAgentTotalTimeoutMs(appAgentProperties.getTotalTimeout().toMillis());
-        meta.setAgentMaxStepsConfigured(appAgentProperties.getMaxSteps());
-        meta.setAgentToolTimeoutMs(appAgentProperties.getToolTimeout().toMillis());
-        meta.setAgentLlmStreamTimeoutMs(appAgentProperties.getLlmStreamTimeout().toMillis());
-    }
-
     private EvalChatResponse finalizeResponse(
             EvalChatResponse response,
             EvalMembershipHttpContext membershipCtx,
@@ -371,14 +339,25 @@ public class EvalChatService {
         if (meta == null || !ctx.completeForHashedMembership()) {
             return;
         }
-        List<EvalChatRetrievalHit> hits = response.getRetrievalHits();
-        if (hits == null || hits.isEmpty()) {
-            return;
-        }
         List<String> ids = new ArrayList<>();
-        for (EvalChatRetrievalHit h : hits) {
-            if (h.getId() != null && !h.getId().isBlank()) {
-                ids.add(h.getId());
+        List<EvalChatRetrievalHit> hits = response.getRetrievalHits();
+        if (hits != null && !hits.isEmpty()) {
+            for (EvalChatRetrievalHit h : hits) {
+                if (h.getId() != null && !h.getId().isBlank()) {
+                    ids.add(RetrievalMembershipHasher.canonicalChunkId(h.getId()));
+                }
+            }
+        }
+        // 与 vagent 对齐：若根级 retrieval_hits 未挂上（历史路径/序列化差异），仍可从 sources[*].id 派生 hashes
+        if (ids.isEmpty()) {
+            List<EvalChatSource> srcs = response.getSources();
+            if (srcs == null || srcs.isEmpty()) {
+                return;
+            }
+            for (EvalChatSource s : srcs) {
+                if (s.getId() != null && !s.getId().isBlank()) {
+                    ids.add(RetrievalMembershipHasher.canonicalChunkId(s.getId()));
+                }
             }
         }
         if (ids.isEmpty()) {
@@ -462,8 +441,9 @@ public class EvalChatService {
         List<EvalChatRetrievalHit> hits = new ArrayList<>(docs.size());
         List<EvalChatSource> sources = new ArrayList<>(docs.size());
         for (Document d : docs) {
-            String id = d.getId();
-            if (id == null || id.isBlank()) {
+            String rawId = d.getId();
+            String id = RetrievalMembershipHasher.canonicalChunkId(rawId);
+            if (id.isEmpty()) {
                 continue;
             }
             String title = null;
@@ -516,7 +496,7 @@ public class EvalChatService {
             }
             String key;
             if (d.getId() != null && !d.getId().isBlank()) {
-                key = "id:" + d.getId();
+                key = "id:" + RetrievalMembershipHasher.canonicalChunkId(d.getId());
             } else {
                 String text = d.getText() != null ? d.getText() : "";
                 key = "text:" + text.hashCode();

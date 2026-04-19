@@ -37,7 +37,7 @@ import org.springframework.web.bind.annotation.RestController;
  *   "meta": {
  *     "mode": "AGENT",
  *     "request_id": "550e8400-e29b-41d4-a716-446655440000",
- *     "stage_order": ["PLAN","RETRIEVE","TOOL","WRITE","GUARD"],
+ *     "stage_order": ["PLAN","RETRIEVE","TOOL","GUARD","WRITE"],
  *     "step_count": 5,
  *     "replan_count": 0
  *   }

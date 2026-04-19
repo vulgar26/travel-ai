@@ -27,7 +27,7 @@
 |----------------------------------------|----------|----------|
 | 非流式 JSON、snake_case、`latency_ms` | **已满足** | `EvalChatController.java`、`EvalChatResponse` DTO |
 | `meta.stage_order` / `step_count` / `replan_count` | **已满足**（`replan_count` 恒 0） | `EvalChatService.java`、`EvalLinearAgentPipeline.java` |
-| **注意**：评测 stub 管线阶段顺序为 **`PLAN→RETRIEVE→TOOL→WRITE→GUARD`**，与主线 `TravelAgent` **不一致** | 有意保留 Day2 契约；对齐主线顺序属后续改造项 | `EvalLinearAgentPipeline.java` |
+| 评测 stub 管线阶段顺序与主线一致 | **已满足**：**`PLAN→RETRIEVE→TOOL→GUARD→WRITE`**（`EvalLinearAgentPipeline` / `EvalChatService` / `meta.stage_order`） | `EvalLinearAgentPipeline.java`、`EvalChatService.java` |
 | Plan 解析 repair once、`plan_parse_attempts/outcome` | **已满足**（评测路径） | `EvalPlanParseCoordinator`、`PlanParser` |
 | E7 membership、`X-Eval-*` HMAC | **已满足** | `RetrievalMembershipHasher.java`、`EvalMembershipHttpContext.java` |
 | 评测 HTTP 网关（文档外增量） | **已满足**：`X-Eval-Gateway-Key` ↔ `app.eval.gateway-key`，未配置则评测路径 401 | `EvalGatewayAuthFilter.java`、`SecurityConfig.java` |
@@ -56,7 +56,7 @@
 - **评测整段 HTTP 强制中断**：`latency_ms` 仍可能大于 `agent_total_timeout_ms`（未在评测线程上套 `total-timeout`）；`EvalToolStageRunner` 的 timeout stub 已与 `app.agent.tool-timeout` 取 min。
 - **Reflection / recovery**（一次性反思）、`self_check` JSON、`meta.recovery_action`。
 - **长期记忆** `user_profile` / 保留期 / 删除权（文档 P0 整节隐私治理）。
-- **主线与评测**阶段顺序统一为同一枚举序列（当前 SSE 与 `EvalLinearAgentPipeline` 顺序不同）。
+- **主线与评测**阶段顺序已统一为 **`…TOOL→GUARD→WRITE`**（`TravelAgent` 与 `EvalLinearAgentPipeline` 一致）。  
 - **按 plan `steps` 物理跳过阶段**：与当前 P0「固定五次调用」类注释一致，**未做**；若要做须改契约与测试（见 `TravelAgent` 类注释与外部计划 P0-1）。
 
 ---
@@ -64,6 +64,6 @@
 ## 5. 建议的下一步（与外部计划对齐的优先级）
 
 1. **配置收口（续）**：评测请求级 `total-timeout` 中断或其它阶段 stub 的 deadline 与 `AppAgentProperties` 继续对齐。  
-2. **阶段顺序对齐**：决定 SSOT 为 `…GUARD→WRITE` 或 `…WRITE→GUARD`，同步改 `EvalLinearAgentPipeline` 与文档。  
+2. **阶段顺序**：SSOT 为 **`…GUARD→WRITE`**；若将来调整 SSE 编排，须同步 `EvalLinearAgentPipeline`、`EvalChatService` 中手工 `stage_order` 与契约测试。  
 3. **可选**：将 Vagent 侧 `travel-ai-upgrade.md` 的「评测对接」小节补充 **`X-Eval-Gateway-Key`**，与本仓一致。  
 4. **P0-2 加深**：主线 Plan schema 与评测 `PlanV1` 对齐程度、repair 路径是否复用评测协调器。

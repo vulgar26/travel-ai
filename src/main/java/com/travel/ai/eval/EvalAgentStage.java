@@ -9,6 +9,6 @@ public enum EvalAgentStage {
     PLAN,
     RETRIEVE,
     TOOL,
-    WRITE,
-    GUARD
+    GUARD,
+    WRITE
 }

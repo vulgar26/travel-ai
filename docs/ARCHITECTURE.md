@@ -12,10 +12,9 @@
 
 **超时（`application.yml` → `app.agent`）**：`total-timeout` 包住整段 SSE 合并流；`llm-stream-timeout` 仅作用于 WRITE 的 `ChatClient` 流；`tool-timeout` 作用于天气 OkHttp；`max-steps` 为配置下限校验（当前固定流水线为 5 步，配置须 ≥5）。
 
-### 1.1 与评测路径的差异（须知）
+### 1.1 评测路径（对齐主线）
 
-- **评测** `POST /api/v1/eval/chat` 使用 `EvalLinearAgentPipeline` 记录的 **`PLAN→RETRIEVE→TOOL→WRITE→GUARD`** 顺序（Day2 契约 stub）。  
-- **主线 SSE** 为 **`…→TOOL→GUARD→WRITE`**。报表或文档对齐时不要混用。
+- **评测** `POST /api/v1/eval/chat` 的线性占位管线与 **主线 SSE** 同为 **`PLAN→RETRIEVE→TOOL→GUARD→WRITE`**（`EvalLinearAgentPipeline`；短路路径仍可能只返回子序列，如 `PLAN→GUARD`）。  
 
 ## 2. 单链路约束（为什么要这样做）
 

@@ -8,7 +8,7 @@ import java.util.List;
 
 /**
  * P0 线性阶段执行骨架（Day2）：<strong>单一入口</strong> {@link #runStubStages(EvalChatRequest)}，内部按固定数组顺序
- * {@code PLAN→RETRIEVE→TOOL→WRITE→GUARD} 串行调用各阶段占位逻辑。
+ * {@code PLAN→RETRIEVE→TOOL→GUARD→WRITE} 串行调用各阶段占位逻辑（与主线 {@code TravelAgent} 一致）。
  * <p>
  * <b>如何保证固定顺序（给组长看的概念层说明）</b>：
  * <ul>
@@ -20,14 +20,14 @@ import java.util.List;
 public final class EvalLinearAgentPipeline {
 
     /**
-     * 固定顺序；任何改动须与 {@code plans/p0-execution-map.md} A3-2 一致。
+     * 固定顺序；须与主线 {@link com.travel.ai.agent.TravelAgent} 线性阶段一致。
      */
     private static final EvalAgentStage[] FIXED_ORDER = {
             EvalAgentStage.PLAN,
             EvalAgentStage.RETRIEVE,
             EvalAgentStage.TOOL,
-            EvalAgentStage.WRITE,
-            EvalAgentStage.GUARD
+            EvalAgentStage.GUARD,
+            EvalAgentStage.WRITE
     };
 
     private EvalLinearAgentPipeline() {

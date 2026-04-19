@@ -18,7 +18,7 @@ public final class SafePlanRepairHintBuilder {
      */
     private static final String SCHEMA_EXCERPT_BASE = """
             plan_version:string(v1); goal?:string; steps:array(1-8);\
-             each step: step_id, stage in PLAN|RETRIEVE|TOOL|WRITE|GUARD, instruction;\
+             each step: step_id, stage in PLAN|RETRIEVE|TOOL|GUARD|WRITE, instruction;\
              optional tool{name,args object}; optional expected_output;\
              constraints:{max_steps:int(1-20),total_timeout_ms:int,tool_timeout_ms:int}; notes?:string\
             """.replaceAll("\\s+", " ").trim();
