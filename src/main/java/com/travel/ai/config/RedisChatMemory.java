@@ -10,6 +10,8 @@ import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.data.redis.core.Cursor;
+import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -40,7 +42,46 @@ public class RedisChatMemory implements ChatMemory {
         String username = context.getAuthentication() != null
                 ? context.getAuthentication().getName()
                 : "anonymous";
-        return KEY_PREFIX + username + ":" + conversationId;
+        return buildKey(username, conversationId);
+    }
+
+    /**
+     * 显式用户名（供删除画像等路径：不依赖当前 {@code SecurityContext} 解析出的主体名）。
+     */
+    public static String buildKey(String username, String conversationId) {
+        String u = username != null && !username.isBlank() ? username : "anonymous";
+        return KEY_PREFIX + u + ":" + conversationId;
+    }
+
+    /**
+     * 删除指定用户在某会话下的 Redis 短期记忆（与 {@link #clear} 等价，但用户名显式传入）。
+     */
+    public void clearForUser(String username, String conversationId) {
+        if (conversationId == null || conversationId.isBlank()) {
+            return;
+        }
+        stringRedisTemplate.delete(buildKey(username, conversationId));
+    }
+
+    /**
+     * 扫描并删除 {@code travel:chat:memory:{username}:*} 下全部键（慎用；用于删除画像时可选清理会话）。
+     *
+     * @return 删除的键数量
+     */
+    public int deleteAllConversationsForUser(String username) {
+        if (username == null || username.isBlank()) {
+            return 0;
+        }
+        String pattern = KEY_PREFIX + username + ":*";
+        ScanOptions options = ScanOptions.scanOptions().match(pattern).count(500).build();
+        int n = 0;
+        try (Cursor<String> cursor = stringRedisTemplate.scan(options)) {
+            while (cursor.hasNext()) {
+                stringRedisTemplate.delete(cursor.next());
+                n++;
+            }
+        }
+        return n;
     }
 
     @Override

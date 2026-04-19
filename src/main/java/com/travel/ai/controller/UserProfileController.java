@@ -6,6 +6,7 @@ import com.travel.ai.profile.UserProfileService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -64,8 +65,13 @@ public class UserProfileController {
     }
 
     @DeleteMapping
-    public ResponseEntity<Void> delete() {
-        userProfileService.deleteForCurrentUser();
+    public ResponseEntity<Void> delete(
+            @RequestParam(name = "clearChatMemory", defaultValue = "false") boolean clearChatMemory,
+            @RequestParam(required = false) String conversationId) {
+        if (conversationId != null && !conversationId.isBlank() && !ConversationIdValidator.isValid(conversationId)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid conversationId");
+        }
+        userProfileService.deleteForCurrentUser(clearChatMemory, conversationId);
         return ResponseEntity.noContent().build();
     }
 
@@ -140,7 +146,7 @@ public class UserProfileController {
     @DeleteMapping("/pending-extraction")
     public ResponseEntity<Void> discardPendingExtraction(@RequestParam String conversationId) {
         if (!ConversationIdValidator.isValid(conversationId)) {
-            throw new org.springframework.web.server.ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid conversationId");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid conversationId");
         }
         userProfileService.discardPendingExtraction(conversationId);
         return ResponseEntity.noContent().build();

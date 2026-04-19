@@ -93,7 +93,7 @@ npm run dev
 | `GET` | `/travel/profile` | Bearer JWT | 长期画像 JSON：`schemaVersion` + `profile`（对象；无记录时为空对象） |
 | `PUT` | `/travel/profile` | Bearer JWT | 请求体 `{"profile":{...}}` 整包替换（顶层仅字符串/数字/布尔；槽位与长度见 `app.memory.profile.*`） |
 | `PATCH` | `/travel/profile` | Bearer JWT | 请求体 `{"profile":{...}}` 浅合并；字段置 `null` 表示删除该键 |
-| `DELETE` | `/travel/profile` | Bearer JWT | 删除当前用户画像（**204**；幂等） |
+| `DELETE` | `/travel/profile` | Bearer JWT | 删除当前用户画像（**204**；幂等）。可选查询参数 `clearChatMemory=true`：同时删 Redis 短期会话；可再加 `conversationId=…` 只清该会话 |
 | `POST` | `/travel/profile/extract-suggestion` | Bearer JWT | 从 Redis 会话抽取画像建议 JSON；体 `{"conversationId":"…","saveAsPending":true}`；须 `app.memory.auto-extract.enabled=true` |
 | `GET` | `/travel/profile/pending-extraction?conversationId=…` | Bearer JWT | 读取待确认的合并预览（无则 **404**） |
 | `POST` | `/travel/profile/confirm-extraction` | Bearer JWT | 体 `{"conversationId":"…"}` 将待确认合并结果写入 PG 并清除 pending |

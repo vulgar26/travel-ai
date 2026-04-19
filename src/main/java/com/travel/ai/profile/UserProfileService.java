@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.travel.ai.config.AppMemoryProperties;
+import com.travel.ai.config.RedisChatMemory;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,18 +23,21 @@ public class UserProfileService {
     private final AppMemoryProperties appMemoryProperties;
     private final ProfileExtractionService profileExtractionService;
     private final UserProfilePendingExtractionStore pendingExtractionStore;
+    private final RedisChatMemory redisChatMemory;
 
     public UserProfileService(
             UserProfileJdbcRepository repository,
             ObjectMapper objectMapper,
             AppMemoryProperties appMemoryProperties,
             ProfileExtractionService profileExtractionService,
-            UserProfilePendingExtractionStore pendingExtractionStore) {
+            UserProfilePendingExtractionStore pendingExtractionStore,
+            RedisChatMemory redisChatMemory) {
         this.repository = repository;
         this.objectMapper = objectMapper;
         this.appMemoryProperties = appMemoryProperties;
         this.profileExtractionService = profileExtractionService;
         this.pendingExtractionStore = pendingExtractionStore;
+        this.redisChatMemory = redisChatMemory;
     }
 
     public UserProfileView getForCurrentUser() {
@@ -87,9 +91,17 @@ public class UserProfileService {
     }
 
     @Transactional
-    public void deleteForCurrentUser() {
+    public void deleteForCurrentUser(boolean clearChatMemory, String conversationId) {
         String user = requireUsername();
         repository.deleteByUserId(user);
+        if (!clearChatMemory) {
+            return;
+        }
+        if (conversationId != null && !conversationId.isBlank()) {
+            redisChatMemory.clearForUser(user, conversationId.trim());
+        } else {
+            redisChatMemory.deleteAllConversationsForUser(user);
+        }
     }
 
     /**

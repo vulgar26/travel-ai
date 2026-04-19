@@ -2,6 +2,7 @@ package com.travel.ai.integration;
 
 import com.travel.ai.TravelAiApplication;
 import com.travel.ai.agent.TravelAgent;
+import com.travel.ai.config.RedisChatMemory;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -13,6 +14,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.ActiveProfiles;
 import org.testcontainers.containers.GenericContainer;
@@ -54,6 +56,9 @@ class UserProfileIntegrationTest {
 
     @Autowired
     private TestRestTemplate restTemplate;
+
+    @Autowired
+    private StringRedisTemplate stringRedisTemplate;
 
     private static final Pattern TOKEN = Pattern.compile("\"token\"\\s*:\\s*\"([^\"]+)\"");
 
@@ -147,5 +152,23 @@ class UserProfileIntegrationTest {
     void profile_withoutAuth_returns401() {
         ResponseEntity<String> res = restTemplate.getForEntity("/travel/profile", String.class);
         assertThat(res.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void deleteProfile_withClearChatMemory_deletesRedisKeys() {
+        String token = loginDemo();
+        String conv = "rediswipe01";
+        String key = RedisChatMemory.buildKey("demo", conv);
+        stringRedisTemplate.opsForValue().set(key, "[]");
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(token);
+        ResponseEntity<Void> del = restTemplate.exchange(
+                "/travel/profile?clearChatMemory=true&conversationId=" + conv,
+                HttpMethod.DELETE,
+                new HttpEntity<>(headers),
+                Void.class);
+        assertThat(del.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(stringRedisTemplate.opsForValue().get(key)).isNull();
     }
 }
