@@ -56,7 +56,7 @@
 - **Reflection / recovery**（一次性反思）、`self_check` JSON、`meta.recovery_action`。
 - **长期记忆** `user_profile` / 保留期 / 删除权（文档 P0 整节隐私治理）。
 - **按 plan `steps` 物理跳过阶段**：与当前 P0「固定五次调用」类注释一致，**未做**；若要做须改契约与测试（见 `TravelAgent` 类注释与外部计划 P0-1）。
-- **`conversationId` 归口**：仍多由客户端传入，缺少服务端生成与所有权强校验（见 `docs/STATUS.md`）。
+- **`conversationId` 归口**：已实现 `POST /travel/conversations` 签发 + Redis 登记；`GET /travel/chat/{id}` 路径校验；`app.conversation.require-registration` 为 `true` 时强校验归属（默认 `false` 兼容演示/测试，见 `application.yml`）。
 - **SSE 与评测的 plan 可观测性差异**：主线 PLAN 解析结论在日志字段 **`[plan]`** `plan_parse_outcome` / `plan_parse_attempts`（与评测 `meta.plan_parse_*` 口径一致）；**未**在 SSE HTTP 响应体中回显 `plan_parse_*`（若要对齐 harness 再立项）。
 
 ---
@@ -65,12 +65,13 @@
 
 **已收口（原 §5 1–3，仅留档）**：`AppEvalProperties`（`app.eval.*`）；评测整段 **`app.agent.total-timeout`** 硬中断（`AGENT_TOTAL_TIMEOUT`）；评测与主线阶段顺序 **`…TOOL→GUARD→WRITE`**；外部 `travel-ai-upgrade.md` §「与 eval 的对接」已补网关与超时表述。
 
+**已收口（§5 原第 1 条）**：`conversationId`——`POST /travel/conversations`、`ConversationRegistry`、路径校验、`app.conversation.require-registration`。
+
 **当前推荐执行顺序**：
 
-1. **`conversationId` 服务端生成与所有权校验**（安全与产品边界，见 `STATUS.md`）。  
-2. **按 `plan.steps` 物理跳过阶段**（大契约：主线 + 评测 + 数据集 + 文档同步）。  
-3. **Reflection / recovery**（`meta.recovery_action` 等，依赖 eval 契约）。  
-4. **长期记忆与隐私治理**（`user_profile`、保留期、删除权）。  
-5. **工程债**：部分接口错误体统一 JSON、`docs/UPGRADE_PLAN.md` 中尚未收口项。
+1. **按 `plan.steps` 物理跳过阶段**（大契约：主线 + 评测 + 数据集 + 文档同步）。  
+2. **Reflection / recovery**（`meta.recovery_action` 等，依赖 eval 契约）。  
+3. **长期记忆与隐私治理**（`user_profile`、保留期、删除权）。  
+4. **工程债**：部分接口错误体统一 JSON、`docs/UPGRADE_PLAN.md` 中尚未收口项。
 
 **维护提醒**：若调整 SSE 线性阶段顺序，须同步 `EvalLinearAgentPipeline`、`EvalChatService` 中手工 `stage_order` 与相关契约测试。  

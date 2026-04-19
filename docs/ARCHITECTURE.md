@@ -5,7 +5,7 @@
 ## 1. 请求链路（文本流程图）
 
 客户端请求（SSE，经鉴权与限流）  
-→ `TravelController`：`GET /travel/chat/{conversationId}?query=...`  
+→ `TravelController`：可选 `POST /travel/conversations` 登记会话；`GET /travel/chat/{conversationId}?query=...`（路径校验；`app.conversation.require-registration` 时校验 Redis 归属）  
 → `TravelAgent.chat(conversationId, userMessage)`  
 → **线性阶段**（同一 `requestId` 日志）：`PLAN`（结构化计划 JSON，可配置 LLM）→ `RETRIEVE`（`QueryRewriter` + `VectorStore` 多路检索、合并去重）→ `TOOL`（受控天气等）→ `GUARD`（零命中/无工具数据门控）→ `WRITE`（`ChatClient` 流式生成）  
 → SSE：`引用片段` 首包 + 正文 `data` + `comment` 心跳

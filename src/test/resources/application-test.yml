@@ -5,6 +5,8 @@ spring:
       api-key: sk-test-placeholder-not-used-in-these-tests
 
 app:
+  conversation:
+    require-registration: false
   security:
     jwt:
       secret: test-jwt-secret-must-be-at-least-32-chars-long

@@ -88,12 +88,13 @@ npm run dev
 | 方法 | 路径 | 认证 | 说明 |
 |------|------|------|------|
 | `POST` | `/auth/login` | 否 | JSON 用户名密码，返回 JWT |
+| `POST` | `/travel/conversations` | Bearer JWT | 服务端生成并登记 `conversationId`，JSON：`{"conversationId":"..."}` |
 | `POST` | `/knowledge/upload` | Bearer JWT | `multipart/form-data`，字段 `file` |
-| `GET` | `/travel/chat/{conversationId}?query=...` | Bearer JWT | **SSE**（`text/event-stream`） |
+| `GET` | `/travel/chat/{conversationId}?query=...` | Bearer JWT | **SSE**（`text/event-stream`）；`conversationId` 须符合字母数字与 `_-`，且长度 ≤128 |
 | `POST` | `/api/v1/eval/chat` | **网关密钥** `X-Eval-Gateway-Key` + 已认证主体 | 评测用 **JSON**（非流式）；eval 侧另有 `X-Eval-Token` 等 membership 头，见 Vagent `eval-upgrade.md` |
 | `GET` | `/actuator/health`、`/actuator/info` | 否 | 健康与信息 |
 
-未带 JWT 访问受保护业务接口 → **401**。聊天超频 → **429**（JSON）。未配置或未携带正确评测网关密钥访问 `/api/v1/eval/**` → **401**。
+未带 JWT 访问受保护业务接口 → **401**。聊天超频 → **429**（JSON）。未配置或未携带正确评测网关密钥访问 `/api/v1/eval/**` → **401**。非法 `conversationId` 路径变量 → **400**。若 `app.conversation.require-registration=true` 且当前用户未登记该 ID → **403**。
 
 ---
 
@@ -105,6 +106,12 @@ npm run dev
 | `APP_JWT_SECRET` | JWT 密钥；Compose/生产建议 ≥32 字符（`docker` 等 profile 下弱密钥会启动失败） |
 | `WEATHER_API_KEY` | 天气 API（可选） |
 | `APP_EVAL_GATEWAY_KEY` | 与请求头 `X-Eval-Gateway-Key` 一致；联调 eval 时必需 |
+
+### `app.conversation`（`application.yml`）
+
+| 配置项 | 含义 |
+|--------|------|
+| `app.conversation.require-registration` | `true` 时仅允许已通过 `POST /travel/conversations` 登记到当前用户的 `conversationId` 调用聊天 SSE；默认 `false` 兼容旧演示与测试 |
 
 ### `app.agent` 超时与步数（`application.yml`）
 

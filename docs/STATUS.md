@@ -17,7 +17,7 @@ Spring Boot 3 + Spring AI（DashScope）的 **出行规划演示后端**：**JWT
 
 | 域 | 说明 |
 |----|------|
-| 对话 | `GET /travel/chat/{conversationId}?query=…`，SSE：`引用首包` + `data` 流 + `comment` 心跳；`[perf]` 日志 |
+| 对话 | `POST /travel/conversations` 签发并登记 `conversationId`；`GET /travel/chat/{conversationId}?query=…`（路径校验；可选 `app.conversation.require-registration` 强校验归属），SSE：`引用首包` + `data` 流 + `comment` 心跳；`[perf]` 日志 |
 | 主线编排 | `TravelAgent`：`PLAN → RETRIEVE → TOOL → GUARD → WRITE`；`RetrieveEmptyHitGate`；计划 JSON 可经 LLM 产出并注入最终 prompt（`app.agent.plan-stage.enabled`） |
 | RAG | `QueryRewriter`（失败兜底 + 行长限制）、合并去重检索、`user_id` 过滤 |
 | 工具 | `WeatherTool`；`ToolExecutor` / 熔断 / 限流 / 可观测；HTTP 超时见 `app.agent.tool-timeout` |
@@ -31,7 +31,7 @@ Spring Boot 3 + Spring AI（DashScope）的 **出行规划演示后端**：**JWT
 
 ## 已知差距 / 风险（仍有效）
 
-- **`conversationId`**：仍主要由客户端传入，缺少服务端生成与所有权强校验。  
+- **`conversationId`**：已支持服务端签发与 Redis 登记；生产可设 `app.conversation.require-registration=true` 强制先 `POST /travel/conversations` 再拉 SSE。  
 - **部分接口错误体**：上传等路径返回形态未必统一 JSON（见历史债）。  
 - **阶段顺序**：评测 stub 与主线均为 `…TOOL→GUARD→WRITE`（详见 `IMPLEMENTATION_MATRIX.md`）。  
 - **未配置 `APP_EVAL_GATEWAY_KEY`** 时：评测路径全部 401（有意防误暴露）。

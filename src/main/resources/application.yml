@@ -76,6 +76,9 @@ weather:
   timeout-ms: 3000
 
 app:
+  conversation:
+    # true：仅允许已通过 POST /travel/conversations 登记到当前用户的 conversationId 访问 GET /travel/chat/{id}（生产推荐）
+    require-registration: false
   sse:
     # SSE 空闲心跳间隔（秒），发送标准 comment 行，避免网关/代理因长时间无字节而断开
     heartbeat-seconds: 15

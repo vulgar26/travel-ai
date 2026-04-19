@@ -32,7 +32,9 @@ export default function App() {
   const [password, setPassword] = useState('demo123')
   const [token, setToken] = useState(() => localStorage.getItem('token') ?? '')
 
-  const [conversationId, setConversationId] = useState('demo-conv')
+  const [conversationId, setConversationId] = useState(
+    () => localStorage.getItem('conversationId') ?? 'demo-conv',
+  )
   const [query, setQuery] = useState('给我一份成都两天一夜行程')
   const [output, setOutput] = useState('')
   const [status, setStatus] = useState('')
@@ -66,6 +68,19 @@ export default function App() {
       }
       setToken(t)
       localStorage.setItem('token', t)
+      try {
+        const cres = await fetch('/api/travel/conversations', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${t}` },
+        })
+        const cj = await cres.json().catch(() => ({}))
+        if (cres.ok && cj.conversationId) {
+          setConversationId(cj.conversationId)
+          localStorage.setItem('conversationId', cj.conversationId)
+        }
+      } catch {
+        /* 忽略：可继续用手动填写的 conversationId */
+      }
       setStatus('已登录（token 已保存到浏览器 localStorage）')
     } catch (e) {
       setStatus('')
@@ -76,8 +91,41 @@ export default function App() {
   const logout = useCallback(() => {
       setToken('')
       localStorage.removeItem('token')
+      localStorage.removeItem('conversationId')
       setStatus('已退出')
   }, [])
+
+  const newConversation = useCallback(async () => {
+    setError('')
+    if (!token) {
+      setError('请先登录')
+      return
+    }
+    setStatus('创建会话…')
+    try {
+      const res = await fetch('/api/travel/conversations', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(data.message ?? `创建失败 HTTP ${res.status}`)
+        setStatus('')
+        return
+      }
+      if (!data.conversationId) {
+        setError('响应无 conversationId')
+        setStatus('')
+        return
+      }
+      setConversationId(data.conversationId)
+      localStorage.setItem('conversationId', data.conversationId)
+      setStatus('已新建会话')
+    } catch (e) {
+      setError(e.message ?? String(e))
+      setStatus('')
+    }
+  }, [token])
 
   /** 与后端 KnowledgeController 一致：POST /knowledge/upload，表单字段 file，仅 .txt */
   const uploadKnowledge = useCallback(async () => {
@@ -242,6 +290,10 @@ export default function App() {
 
       <section className="card">
         <h2>SSE 对话</h2>
+        <p className="hint small" style={{ marginTop: 0 }}>
+          登录成功后会向服务端申请 <code>conversationId</code>；生产若开启{' '}
+          <code>app.conversation.require-registration=true</code>，须使用已登记的 ID。
+        </p>
         <div className="row">
           <label>
             conversationId
@@ -250,6 +302,11 @@ export default function App() {
               onChange={(e) => setConversationId(e.target.value)}
             />
           </label>
+        </div>
+        <div className="actions">
+          <button type="button" className="secondary" onClick={newConversation} disabled={!token}>
+            新建会话（POST /travel/conversations）
+          </button>
         </div>
         <label className="block">
           问题
