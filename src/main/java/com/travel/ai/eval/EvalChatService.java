@@ -538,12 +538,15 @@ public class EvalChatService {
 
         int total = queryChars + sourcesChars;
         // 经验系数：4 chars ≈ 1 token（只做趋势/异常检测，不做精确计费口径）
-        int tokenEst = (int) Math.ceil(total / 4.0);
+        int charsPerToken = 4;
+        int tokenEst = (int) Math.ceil(total / (double) charsPerToken);
 
         meta.setContextQueryCharCount(queryChars);
         meta.setContextSourcesSnippetCharCount(sourcesChars);
         meta.setContextCharCount(total);
         meta.setContextTokenEstimate(tokenEst);
+        meta.setContextBudgetSourcesSnippetMaxChars(300);
+        meta.setContextBudgetCharsPerTokenEstimate(charsPerToken);
     }
 
     private static void attachRetrievalMembershipMeta(

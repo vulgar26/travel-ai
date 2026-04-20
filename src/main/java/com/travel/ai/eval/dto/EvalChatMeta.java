@@ -87,6 +87,12 @@ public class EvalChatMeta {
     /** 组成项：本轮 sources snippet 总字符数（已截断后的文本）。 */
     private Integer contextSourcesSnippetCharCount;
 
+    /** 预算口径：评测口 {@code sources[].snippet} 规则截断上限（字符）。 */
+    private Integer contextBudgetSourcesSnippetMaxChars;
+
+    /** 预算口径：token 近似估算的 chars/token 系数（例如 4 chars ≈ 1 token）。 */
+    private Integer contextBudgetCharsPerTokenEstimate;
+
     /**
      * 当 {@code latency_ms}（Controller 写入）大于 {@link #agentTotalTimeoutMs} 时为 {@code true}；
      * 未写入总超时或未比较时为 {@code null}。
@@ -326,6 +332,22 @@ public class EvalChatMeta {
 
     public void setContextSourcesSnippetCharCount(Integer contextSourcesSnippetCharCount) {
         this.contextSourcesSnippetCharCount = contextSourcesSnippetCharCount;
+    }
+
+    public Integer getContextBudgetSourcesSnippetMaxChars() {
+        return contextBudgetSourcesSnippetMaxChars;
+    }
+
+    public void setContextBudgetSourcesSnippetMaxChars(Integer contextBudgetSourcesSnippetMaxChars) {
+        this.contextBudgetSourcesSnippetMaxChars = contextBudgetSourcesSnippetMaxChars;
+    }
+
+    public Integer getContextBudgetCharsPerTokenEstimate() {
+        return contextBudgetCharsPerTokenEstimate;
+    }
+
+    public void setContextBudgetCharsPerTokenEstimate(Integer contextBudgetCharsPerTokenEstimate) {
+        this.contextBudgetCharsPerTokenEstimate = contextBudgetCharsPerTokenEstimate;
     }
 
     public Boolean getAgentLatencyBudgetExceeded() {

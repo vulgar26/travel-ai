@@ -238,7 +238,9 @@ class EvalChatControllerTest {
                 .andExpect(jsonPath("$.meta.context_query_char_count").value(4))
                 .andExpect(jsonPath("$.meta.context_sources_snippet_char_count").isNumber())
                 .andExpect(jsonPath("$.meta.context_char_count").isNumber())
-                .andExpect(jsonPath("$.meta.context_token_estimate").isNumber());
+                .andExpect(jsonPath("$.meta.context_token_estimate").isNumber())
+                .andExpect(jsonPath("$.meta.context_budget_sources_snippet_max_chars").value(300))
+                .andExpect(jsonPath("$.meta.context_budget_chars_per_token_estimate").value(4));
     }
 
     /**
