@@ -29,7 +29,7 @@
 ### 部分落地 / 需用 eval 持续验收（≠ 未写代码）
 
 - **P0 数值门槛**（如 `CONTRACT_VIOLATION=0`、`UNKNOWN`/`TIMEOUT` 占比、`plan_parse_outcome=failed` 占比等）：字段与降级路径已具备；**是否长期达标**仍依赖固定 dataset 与每次全量 run 的 **`run.report`** 聚合。**已定稿**：可复现核对步骤见 **[`docs/eval/P0_THRESHOLD_RUNBOOK.md`](eval/P0_THRESHOLD_RUNBOOK.md)**（分母、公式、与 `meta`/`latency_ms` 的对照及离线烟测范围）。文中登记的 `run_id` 仅为**时点证据**，换题库须重跑并更新登记。
-- **对抗与安全样例**：工程侧有门控与错误码；**题库规模与标签覆盖**仍小于 SSOT 理想全集（手工表见 `docs/eval.md`，远小于「20～50 条 + CI 全量」目标）。
+- **对抗与安全样例**：工程侧有门控与错误码；**已定稿**：`docs/eval.md` §「评测口：对抗与安全 + RAG/tool 确定性用例」给出与 **`EvalChatSafetyGate` / `EvalQuerySafetyPolicy` / `EvalBehaviorPolicy`** 对齐的示例 `query`、预期 `behavior`/`error_code` 及**建议数据集 `tags`**（便于导入 Vagent 与分桶）。**仍待推进**：把行表批量导入为 ≥20 条正式 case、CI 对公网 target 全量跑（见未做清单）。
 - **`sources[]` 系统构造**：评测 stub 路径由服务端组装；**SSE 主产品**另有引用片段呈现，与评测 DTO 字段不必逐字一一对应（细节以矩阵为准）。
 - **P1-0 harness 扩展项**：如显式 **token 预算**、`context_truncated`、`config_snapshot_json` 全量、断点恢复、Supervisor-Worker 等：**未**按 SSOT 满配。
 

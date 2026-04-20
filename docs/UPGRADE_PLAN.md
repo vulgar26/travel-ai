@@ -329,6 +329,7 @@
 - [x] `SecurityConfig` 默认「非白名单需认证」；评测路径另需 `X-Eval-Gateway-Key`  
 - [x] Filter 链 **401/403** 与 `RestApiExceptionHandler` 对常见 4xx 返回统一 JSON（`JsonApiErrorSupport`；与 `EVAL_GATEWAY_*` 同形）  
 - [x] P0 **比例型门槛**的验收步骤已文档化（[`docs/eval/P0_THRESHOLD_RUNBOOK.md`](eval/P0_THRESHOLD_RUNBOOK.md)；达标仍依赖每次全量 `run.report`）  
+- [x] 评测口 **对抗 / 安全 / rag/tool** 确定性用例与建议 **`tags`** 已写入 [`docs/eval.md`](eval.md)（与 `EvalChatSafetyGate` 等源码对齐；批量导入 CI 仍待办）  
 - [x] `QueryRewriter` 畸形输出有兜底；检索结果按 id 显式去重（`TravelAgent#mergeAndDedupeDocuments`）  
 - [x] `KnowledgeServiceImplTest` 在 `@BeforeEach` 绑定 `SecurityContext`（等价于已登录 `demo`，见 P4-1）  
 - [x] 至少一条 JWT 链路与 eval 网关链路的集成测试（`TravelAiApplicationIntegrationTest`，含未授权访问 JSON 断言）  
