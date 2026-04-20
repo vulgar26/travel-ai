@@ -1,8 +1,28 @@
-# 升级方案（基于代码评审建议）
+# 升级方案（本仓执行 backlog）
 
-本文档将此前评审中提出的缺口整理为**可分批执行**的升级路线：每项含背景、具体改法、涉及文件、验收标准与优先级。实施时建议按 **P0 → P1 → P2** 顺序推进，避免并行改动导致难以回归。
+## 准则与真源
 
-**与 Vagent `travel-ai-upgrade.md` 及当前代码的逐项对照**（含「已实现 / 偏差 / 未做」）见 **[`docs/IMPLEMENTATION_MATRIX.md`](IMPLEMENTATION_MATRIX.md)**；本文件保留为评审清单，避免与矩阵重复维护同一表格。
+- **规划 SSOT（单一上游）**：`D:\Projects\Vagent\plans\travel-ai-upgrade.md` —— 研发助手 Agent 的完整路线图（Harness 两层、P0 数据合规与验收门槛、线性控制流与 `GUARD` 在 `WRITE` 前、plan 解析治理、与 eval 的 HTTP/契约对接、P1+ 能力如 rerank / multi-hop / evidence map / 长期记忆写入治理等）。
+- **本文件角色**：把 SSOT 落到本仓库的项整理为**可勾选 backlog**，并保留早期**代码评审**衍生的 P0–P5 条目（实现细节、文件、验收）；**不重贴** SSOT 全文，避免双源漂移。
+- **实现对照真源**：[`docs/IMPLEMENTATION_MATRIX.md`](IMPLEMENTATION_MATRIX.md)（本仓 `src/**` + `application*.yml`）。
+
+下文将此前评审中提出的缺口整理为**可分批执行**的升级路线：每项含背景、具体改法、涉及文件、验收标准与优先级。实施时建议按 **P0 → P1 → P2** 顺序推进，避免并行改动导致难以回归。
+
+### 与 `travel-ai-upgrade.md` 的映射（执行视角）
+
+| SSOT 区块 | 在本仓的跟踪入口 |
+| --- | --- |
+| 现状与一句话定位 | `README.md`、`docs/ARCHITECTURE.md`、矩阵 §1 |
+| Evaluation / Execution Harness、`meta` 可观测字段 | 矩阵 §1–2；`TravelAgent`、`EvalChatService`、`EvalLinearAgentPipeline` |
+| P0 合规（PII、最小化、保留期、删除权、日志脱敏） | 矩阵 §1、§4；`UserProfileController`、`application.yml`（画像/确认/注入） |
+| P0 验收门槛（`CONTRACT_VIOLATION`、`UNKNOWN`、`TIMEOUT`、`stage_order`、`plan_parse_*`、`replan_count` 等） | 以外部文档阈值为标准；**操作步骤**见 [`docs/eval/P0_THRESHOLD_RUNBOOK.md`](eval/P0_THRESHOLD_RUNBOOK.md)；eval **`run.report`** 聚合 + SSE **`event: plan_parse`** 与日志对账 |
+| 与 eval 的对接（`X-Eval-Gateway-Key`、`X-Eval-*`、超时墙钟） | `EvalGatewayAuthFilter`、`AppEvalProperties`、`EvalChatController`；矩阵 §2 |
+| P1+（反馈表、ReAct、多跳、rerank、DAG…） | 按 SSOT 分期立项；本文件 P2–P3 与部分 P1 为增量工程，不与 SSOT 逐字重复 |
+
+### 工程债（REST / 鉴权错误体）— 收口说明
+
+- **目标**：受保护业务接口在 **401 / 403** 及常见 **4xx** 上返回 **`application/json`**，形体与评测网关、知识上传校验一致：`{"error","message"}`。（**429** 仍沿用 `RateLimitingFilter` 的 `code` + `message`，后续可选与 `error` 字段对齐。）
+- **实现**：`SecurityConfig` 注册 JSON `AuthenticationEntryPoint` / `AccessDeniedHandler`；`JsonApiErrorSupport` 供 `EvalGatewayAuthFilter` 复用；`RestApiExceptionHandler` 处理 `ResponseStatusException`、`HttpMessageNotReadableException`、`MissingServletRequestParameterException`。集成测试断言未带 JWT 访问 `/travel/chat/...` 时 **Content-Type** 为 JSON 且含 `UNAUTHORIZED`。
 
 ---
 
@@ -19,6 +39,14 @@
 ---
 
 ## P0 — 契约一致与配置外置
+
+### P0-0 数值门槛验收（runbook）
+
+**背景**：`travel-ai-upgrade.md` 中 P0 **比例型门槛**（`UNKNOWN`/`TIMEOUT`/`plan_parse_failed` 占比等）必须由 eval 全量 **`run.report`** 证明；单靠本仓单元测试不足以声称「长期达标」。
+
+**已定稿**：[`docs/eval/P0_THRESHOLD_RUNBOOK.md`](eval/P0_THRESHOLD_RUNBOOK.md) —— 固定 dataset 规模约定、逐条门槛的聚合公式、`meta`/`latency_ms` 核对顺序、离线 `EvalChatControllerTest` 烟测范围、与 [`docs/DAY10_P0_CLOSURE.md`](DAY10_P0_CLOSURE.md) 归档的衔接。
+
+---
 
 ### P0-1 聊天限流：代码与文档一致，并外置到配置
 
@@ -212,7 +240,9 @@
 
 ### P4-1 `KnowledgeServiceImplTest` 绑定安全上下文
 
-**问题**：测试未设置 `SecurityContext`，`user_id` 实际为 `anonymous`，未覆盖真实业务断言。
+**问题（历史）**：测试未设置 `SecurityContext` 时，`user_id` 实际为 `anonymous`，未覆盖真实业务断言。
+
+**状态**：已在 `@BeforeEach` / `@AfterEach` 中挂载与清理 `SecurityContext`（等价于已登录 `demo`）；亦可选改用 `@WithMockUser("demo")`。
 
 **改法**：使用 `@WithMockUser("demo")`（Spring Security Test）或在 `@BeforeEach` 中 `SecurityContextHolder` 注入认证。
 
@@ -249,7 +279,9 @@
 
 ### P5-1 删除无用依赖注入
 
-**问题**：`TravelAgent` 中未使用的 `@Autowired RedisChatMemory`；`TravelController` 中未使用的 `ChatClient.Builder`。
+**问题（历史）**：`TravelController` 曾注入未使用的 `ChatClient.Builder`；`TravelAgent` 曾存在未使用依赖风险。
+
+**状态**：`TravelController` 已仅保留在用 Bean；`TravelAgent` 构造器中的 `RedisChatMemory`、`ChatClient.Builder` 等均为在用依赖（以当前 `src` 为准）。
 
 **改法**：删除无用字段与 import；构造器注入已足够处保持单一数据源。
 
@@ -295,10 +327,12 @@
 - [x] 弱 JWT secret：docker/prod/production profile 下 `JwtSecretStartupValidator` fail-fast（见 P0-2 改法 A）  
 - [x] `/auth/login` 具备限流且可配置（`RateLimitingFilter` + `app.rate-limit.login.*`）  
 - [x] `SecurityConfig` 默认「非白名单需认证」；评测路径另需 `X-Eval-Gateway-Key`  
+- [x] Filter 链 **401/403** 与 `RestApiExceptionHandler` 对常见 4xx 返回统一 JSON（`JsonApiErrorSupport`；与 `EVAL_GATEWAY_*` 同形）  
+- [x] P0 **比例型门槛**的验收步骤已文档化（[`docs/eval/P0_THRESHOLD_RUNBOOK.md`](eval/P0_THRESHOLD_RUNBOOK.md)；达标仍依赖每次全量 `run.report`）  
 - [x] `QueryRewriter` 畸形输出有兜底；检索结果按 id 显式去重（`TravelAgent#mergeAndDedupeDocuments`）  
-- [ ] `KnowledgeServiceImplTest` 使用 mock 用户（见 P4-1）  
-- [x] 至少一条 JWT 链路与 eval 网关链路的集成测试（`TravelAiApplicationIntegrationTest`）  
-- [ ] 无用字段已从 `TravelAgent` / `TravelController` 移除（见 P5-1）  
+- [x] `KnowledgeServiceImplTest` 在 `@BeforeEach` 绑定 `SecurityContext`（等价于已登录 `demo`，见 P4-1）  
+- [x] 至少一条 JWT 链路与 eval 网关链路的集成测试（`TravelAiApplicationIntegrationTest`，含未授权访问 JSON 断言）  
+- [x] `TravelController` 无未用 `ChatClient.Builder`；`TravelAgent` 构造注入字段均为在用（见 P5-1；若后续引入死字段再开任务清理）  
 - [ ] （可选）聊天 POST 与 query 长度校验已上线并文档化  
 
 ---
@@ -315,7 +349,8 @@
 | 对话入口 | `com.travel.ai.controller.TravelController` |
 | 集成测试 | `com.travel.ai.integration.TravelAiApplicationIntegrationTest` |
 | 单测 | `com.travel.ai.service.KnowledgeServiceImplTest` |
+| 统一 JSON 错误体 | `com.travel.ai.web.JsonApiErrorSupport`、`RestApiExceptionHandler` |
 
 ---
 
-*文档版本：与评审建议同步整理，可按迭代增删「已完成」勾选或链接到 PR。*
+*文档版本：以 `D:\Projects\Vagent\plans\travel-ai-upgrade.md` 为规划 SSOT，本文件为迁仓 backlog；可按迭代增删「已完成」勾选或链接到 PR。*
