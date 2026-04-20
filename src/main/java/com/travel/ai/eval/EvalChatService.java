@@ -134,7 +134,7 @@ public class EvalChatService {
         response.setBehavior("clarify");
         response.setErrorCode(ERROR_CODE_AGENT_TOTAL_TIMEOUT);
         response.setAnswer("本轮评测请求处理超时（已达 app.agent.total-timeout），请缩短输入或稍后重试。");
-        return complete(response, request, membershipCtx, new Evidence(List.of(), List.of(), 0, 0));
+        return complete(response, request, membershipCtx, emptyEvidence());
     }
 
     private void stampAgentTimeoutsOnMeta(EvalChatMeta meta) {
@@ -440,9 +440,27 @@ public class EvalChatService {
             EvalMembershipHttpContext membershipCtx,
             Evidence evidence
     ) {
+        stampContextTruncationOnMeta(response.getMeta(), evidence);
         EvalReflectionSupport.apply(response, request, appEvalProperties.isReflectionMetaEnabled());
         attachRetrievalMembershipMeta(response.getMeta(), response, membershipCtx, evidence);
         return response;
+    }
+
+    private static void stampContextTruncationOnMeta(EvalChatMeta meta, Evidence evidence) {
+        if (meta == null || evidence == null) {
+            return;
+        }
+        List<String> reasons = new ArrayList<>();
+        if (evidence.sourcesSnippetTruncated()) {
+            reasons.add("sources_snippet_truncated");
+        }
+        if (Boolean.TRUE.equals(meta.getToolOutputTruncated())) {
+            reasons.add("tool_output_truncated");
+        }
+        if (!reasons.isEmpty()) {
+            meta.setContextTruncated(true);
+            meta.setContextTruncationReasons(Collections.unmodifiableList(reasons));
+        }
     }
 
     private static void attachRetrievalMembershipMeta(
@@ -495,12 +513,13 @@ public class EvalChatService {
             List<EvalChatRetrievalHit> retrievalHits,
             List<EvalChatSource> sources,
             int candidateTotal,
-            int candidateLimitN
+            int candidateLimitN,
+            boolean sourcesSnippetTruncated
     ) {
     }
 
     private static Evidence emptyEvidence() {
-        return new Evidence(List.of(), List.of(), 0, 0);
+        return new Evidence(List.of(), List.of(), 0, 0, false);
     }
 
     private record DedupedSlice(List<Document> docs, int totalUnique) {
@@ -559,6 +578,7 @@ public class EvalChatService {
 
         List<EvalChatRetrievalHit> hits = new ArrayList<>(docs.size());
         List<EvalChatSource> sources = new ArrayList<>(docs.size());
+        boolean sourcesSnippetTruncated = false;
         for (Document d : docs) {
             String rawId = d.getId();
             String id = RetrievalMembershipHasher.canonicalChunkId(rawId);
@@ -578,7 +598,9 @@ public class EvalChatService {
             EvalChatSource s = new EvalChatSource();
             s.setId(id);
             s.setTitle(title);
-            s.setSnippet(truncateSnippet(d.getText(), 300));
+            TruncationResult tr = truncateSnippet(d.getText(), 300);
+            s.setSnippet(tr.text());
+            sourcesSnippetTruncated = sourcesSnippetTruncated || tr.truncated();
             s.setScore(null);
             sources.add(s);
         }
@@ -589,19 +611,23 @@ public class EvalChatService {
                 Collections.unmodifiableList(hits),
                 Collections.unmodifiableList(sources),
                 candidateTotalUnique,
-                topN
+                topN,
+                sourcesSnippetTruncated
         );
     }
 
-    private static String truncateSnippet(String text, int maxChars) {
+    private record TruncationResult(String text, boolean truncated) {
+    }
+
+    private static TruncationResult truncateSnippet(String text, int maxChars) {
         if (text == null) {
-            return "";
+            return new TruncationResult("", false);
         }
         String t = text.trim();
         if (t.length() <= maxChars) {
-            return t;
+            return new TruncationResult(t, false);
         }
-        return t.substring(0, maxChars) + "…";
+        return new TruncationResult(t.substring(0, maxChars) + "…", true);
     }
 
     private static DedupedSlice mergeAndDedupeDocuments(List<Document> documents, int maxDocs) {

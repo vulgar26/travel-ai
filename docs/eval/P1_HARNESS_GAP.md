@@ -1,7 +1,7 @@
 # P1-0 Execution Harness：本仓 `meta` 对照与缺口（分步基线）
 
 **SSOT**：`docs/travel-ai-upgrade.md` §「P1-0 harness 工程」。  
-**本文件角色**：**第 1 小步**——只做**盘点与分步建议**，不修改运行时行为；便于后续 PR 逐项闭合「可观测快照」缺口。
+**本文件角色**：基线盘点与分步建议（P1-0 harness 的「作战地图」）；用于把 SSOT 拆成可合入的小 PR。
 
 **代码真源**：`com.travel.ai.eval.dto.EvalChatMeta`、`EvalChatService`。
 
@@ -31,7 +31,7 @@
 | SSOT / 叙述项 | 当前状态 | 建议下一小步（按风险从低到高） |
 |---------------|----------|----------------------------------|
 | **`config_snapshot_json` / `config_snapshot_id`** | `meta` **无**整段配置快照；仅有分散超时等字段 | 新增可选 `meta.config_snapshot`（**小 JSON**：`app.agent.*` 子集 + `app.eval.*` 关键键），或仅 **`config_snapshot_hash`**（SHA-256 配置串）避免体积与泄密 |
-| **统一 `context_truncated`**（历史 / 检索 / 工具块总预算） | 仅有 **`tool_output_truncated`**；**无**「整段 prompt 因预算被截断」总开关 | 在 `EvalChatService` 组装进模型前的文本路径上统计截断，写 `meta.context_truncated` + 可选 `context_truncation_reasons[]` |
+| **统一 `context_truncated`**（历史 / 检索 / 工具块总预算） | **已做（评测路径）**：新增 `meta.context_truncated` + `meta.context_truncation_reasons[]`（当前覆盖 `sources_snippet_truncated` 与 `tool_output_truncated`） | 后续可扩展到历史对话截断 / promptBase 截断等更“总预算”的场景 |
 | **显式 token 计数**（`prompt_tokens` 等） | **未**接入 tokenizer；日志有 perf，**无**稳定 `meta` 数字 | 依赖 Spring AI / 供应商 API 若可取得则写入；否则用 **字符预算近似** + 文档声明误差 |
 | **回放 / 断点恢复**（`plan_raw_hash`、按 `conversationId` 恢复 stage） | **未**做 | 独立里程碑；先文档与表结构，再实现 |
 | **`hop_trace[]` / multi-hop** | **未**做 | 属 P1-4b，与 harness 正交 |
@@ -41,8 +41,8 @@
 
 ## 3. 推荐迭代顺序（与本仓库「每次一小步」一致）
 
-1. **（本文档）** 缺口盘点与链接进 `README` / `UPGRADE_PLAN` / `travel-ai-upgrade` —— **当前 commit**。  
-2. **`context_truncated` + 原因列表**：仅评测路径、仅截断可客观判定处（如 `sources[].snippet` 已达 300、或工具输出截断处统一 OR）。  
+1. 缺口盘点与链接进 `README` / `UPGRADE_PLAN` / `travel-ai-upgrade` —— **已完成**。  
+2. **`context_truncated` + 原因列表**：仅评测路径、仅截断可客观判定处（如 `sources[].snippet` 达 300、或工具输出截断处统一 OR）—— **已完成**。  
 3. **`config_snapshot_hash` 或小 JSON**：从 `Environment` / `AppAgentProperties` 序列化白名单键。  
 4. **Token 或字符预算**：与产品确认是否必须 tokenizer 真值。
 

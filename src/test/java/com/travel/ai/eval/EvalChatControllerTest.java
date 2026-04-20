@@ -191,6 +191,23 @@ class EvalChatControllerTest {
                 .andExpect(jsonPathAbsentOrNull("$.meta.tool_calls_count"));
     }
 
+    @Test
+    void metaContextTruncated_true_whenSourcesSnippetTruncated() throws Exception {
+        String longText = "x".repeat(400);
+        when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of(
+                new Document("hit-long-1", longText, Map.of("user_id", "eval", "source_name", "KB"))
+        ));
+        String body = """
+                {"query":"评测：触发 sources snippet 截断（长度足够）","mode":"EVAL"}
+                """;
+        mockMvc.perform(post("/api/v1/eval/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.meta.context_truncated").value(true))
+                .andExpect(jsonPath("$.meta.context_truncation_reasons[0]").value("sources_snippet_truncated"));
+    }
+
     /**
      * Day3：多组输入下 {@code replan_count} 恒为 P0 固定值，且 {@code step_count == stage_order.length}。
      */

@@ -99,6 +99,18 @@ public class EvalChatMeta {
     private Boolean toolOutputTruncated;
 
     /**
+     * 本轮执行中是否发生过“上下文/证据截断”（如 sources snippet 规则截断、工具输出截断等）。
+     * <p>
+     * 目的：在 compare / run.report 中快速区分「质量变化来自策略」还是「来自预算截断」。
+     */
+    private Boolean contextTruncated;
+
+    /**
+     * 截断原因枚举（无需包含敏感原文），例如：{@code sources_snippet_truncated}、{@code tool_output_truncated}。
+     */
+    private List<String> contextTruncationReasons;
+
+    /**
      * 是否处于低置信/空命中等门控（P0 不启用 score 阈值时仍可由 stub 置 true 供 eval 统计）。
      */
     private Boolean lowConfidence;
@@ -301,6 +313,22 @@ public class EvalChatMeta {
 
     public void setToolOutputTruncated(Boolean toolOutputTruncated) {
         this.toolOutputTruncated = toolOutputTruncated;
+    }
+
+    public Boolean getContextTruncated() {
+        return contextTruncated;
+    }
+
+    public void setContextTruncated(Boolean contextTruncated) {
+        this.contextTruncated = contextTruncated;
+    }
+
+    public List<String> getContextTruncationReasons() {
+        return contextTruncationReasons;
+    }
+
+    public void setContextTruncationReasons(List<String> contextTruncationReasons) {
+        this.contextTruncationReasons = contextTruncationReasons;
     }
 
     public Boolean getLowConfidence() {
