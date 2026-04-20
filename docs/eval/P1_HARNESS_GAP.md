@@ -32,7 +32,7 @@
 |---------------|----------|----------------------------------|
 | **`config_snapshot_json` / `config_snapshot_id`** | **已做（hash）**：新增 `meta.config_snapshot_hash`（含 `alg/scope`），覆盖 `app.agent.*` 与 `app.eval.*` 的白名单键；仍未输出明文 JSON | 后续如需可回放明细，再加小型 `meta.config_snapshot`（严格白名单，不含密钥） |
 | **统一 `context_truncated`**（历史 / 检索 / 工具块总预算） | **已做（评测路径）**：新增 `meta.context_truncated` + `meta.context_truncation_reasons[]`（当前覆盖 `sources_snippet_truncated` 与 `tool_output_truncated`） | 后续可扩展到历史对话截断 / promptBase 截断等更“总预算”的场景 |
-| **显式 token 计数**（`prompt_tokens` 等） | **未**接入 tokenizer；日志有 perf，**无**稳定 `meta` 数字 | 依赖 Spring AI / 供应商 API 若可取得则写入；否则用 **字符预算近似** + 文档声明误差 |
+| **显式 token 计数**（`prompt_tokens` 等） | **部分落地（近似）**：新增 `meta.context_char_count` / `meta.context_token_estimate`（4 chars ≈ 1 token）与组成项；尚未接入供应商真 token | 后续如需“真 token”，再接 tokenizer/供应商返回，并在文档中声明口径差异 |
 | **回放 / 断点恢复**（`plan_raw_hash`、按 `conversationId` 恢复 stage） | **未**做 | 独立里程碑；先文档与表结构，再实现 |
 | **`hop_trace[]` / multi-hop** | **未**做 | 属 P1-4b，与 harness 正交 |
 | **DevLog / `policy_id` 决策事件库** | 部分能力由 **`eval_safety_rule_id`**、**`low_confidence_reasons`** 承担；**无**通用决策日志流 | 可扩展 `meta.policy_events[]`（结构化、无敏感原文） |
@@ -44,6 +44,6 @@
 1. 缺口盘点与链接进 `README` / `UPGRADE_PLAN` / `travel-ai-upgrade` —— **已完成**。  
 2. **`context_truncated` + 原因列表**：仅评测路径、仅截断可客观判定处（如 `sources[].snippet` 达 300、或工具输出截断处统一 OR）—— **已完成**。  
 3. **`config_snapshot_hash` 或小 JSON**：从 `Environment` / `AppAgentProperties` 序列化白名单键 —— **已完成（hash）**。  
-4. **Token 或字符预算**：与产品确认是否必须 tokenizer 真值。
+4. **Token 或字符预算**：先落字符级近似（趋势/异常检测），后续再决定是否接 tokenizer 真值 —— **已完成（近似）**。
 
 每步单独 PR：便于 `EvalChatControllerTest` 与 `run.report` 回归。

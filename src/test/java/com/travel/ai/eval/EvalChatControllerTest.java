@@ -223,6 +223,24 @@ class EvalChatControllerTest {
                 .andExpect(jsonPath("$.meta.config_snapshot_hash_scope").value("app.agent.* + app.eval.* (safe whitelist)"));
     }
 
+    @Test
+    void metaContextSizeEstimates_present() throws Exception {
+        when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of(
+                new Document("hit-1", "snippet", Map.of("user_id", "eval", "source_name", "KB"))
+        ));
+        String body = """
+                {"query":"abcd","mode":"EVAL"}
+                """;
+        mockMvc.perform(post("/api/v1/eval/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.meta.context_query_char_count").value(4))
+                .andExpect(jsonPath("$.meta.context_sources_snippet_char_count").isNumber())
+                .andExpect(jsonPath("$.meta.context_char_count").isNumber())
+                .andExpect(jsonPath("$.meta.context_token_estimate").isNumber());
+    }
+
     /**
      * Day3：多组输入下 {@code replan_count} 恒为 P0 固定值，且 {@code step_count == stage_order.length}。
      */

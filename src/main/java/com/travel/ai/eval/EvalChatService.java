@@ -495,6 +495,7 @@ public class EvalChatService {
             Evidence evidence
     ) {
         stampContextTruncationOnMeta(response.getMeta(), evidence);
+        stampContextSizeEstimatesOnMeta(response.getMeta(), request, evidence);
         EvalReflectionSupport.apply(response, request, appEvalProperties.isReflectionMetaEnabled());
         attachRetrievalMembershipMeta(response.getMeta(), response, membershipCtx, evidence);
         return response;
@@ -515,6 +516,34 @@ public class EvalChatService {
             meta.setContextTruncated(true);
             meta.setContextTruncationReasons(Collections.unmodifiableList(reasons));
         }
+    }
+
+    private static void stampContextSizeEstimatesOnMeta(EvalChatMeta meta, EvalChatRequest request, Evidence evidence) {
+        if (meta == null) {
+            return;
+        }
+        int queryChars = 0;
+        if (request != null && request.getQuery() != null) {
+            queryChars = request.getQuery().length();
+        }
+
+        int sourcesChars = 0;
+        if (evidence != null && evidence.sources() != null) {
+            for (EvalChatSource s : evidence.sources()) {
+                if (s != null && s.getSnippet() != null) {
+                    sourcesChars += s.getSnippet().length();
+                }
+            }
+        }
+
+        int total = queryChars + sourcesChars;
+        // 经验系数：4 chars ≈ 1 token（只做趋势/异常检测，不做精确计费口径）
+        int tokenEst = (int) Math.ceil(total / 4.0);
+
+        meta.setContextQueryCharCount(queryChars);
+        meta.setContextSourcesSnippetCharCount(sourcesChars);
+        meta.setContextCharCount(total);
+        meta.setContextTokenEstimate(tokenEst);
     }
 
     private static void attachRetrievalMembershipMeta(

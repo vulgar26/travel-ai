@@ -72,6 +72,22 @@ public class EvalChatMeta {
     private String configSnapshotHashScope;
 
     /**
+     * 近似的上下文规模统计（字符数）：用于回归时观察“上下文突然变短/变长”。
+     * <p>
+     * 说明：这是<strong>字符级</strong>近似统计，不等价于供应商返回的 token 计数；用于趋势与异常检测。
+     */
+    private Integer contextCharCount;
+
+    /** 与 {@link #contextCharCount} 配套：按经验系数粗略估算的 token 数（默认以 4 chars ≈ 1 token）。 */
+    private Integer contextTokenEstimate;
+
+    /** 组成项：本轮 query 字符数。 */
+    private Integer contextQueryCharCount;
+
+    /** 组成项：本轮 sources snippet 总字符数（已截断后的文本）。 */
+    private Integer contextSourcesSnippetCharCount;
+
+    /**
      * 当 {@code latency_ms}（Controller 写入）大于 {@link #agentTotalTimeoutMs} 时为 {@code true}；
      * 未写入总超时或未比较时为 {@code null}。
      */
@@ -278,6 +294,38 @@ public class EvalChatMeta {
 
     public void setConfigSnapshotHashScope(String configSnapshotHashScope) {
         this.configSnapshotHashScope = configSnapshotHashScope;
+    }
+
+    public Integer getContextCharCount() {
+        return contextCharCount;
+    }
+
+    public void setContextCharCount(Integer contextCharCount) {
+        this.contextCharCount = contextCharCount;
+    }
+
+    public Integer getContextTokenEstimate() {
+        return contextTokenEstimate;
+    }
+
+    public void setContextTokenEstimate(Integer contextTokenEstimate) {
+        this.contextTokenEstimate = contextTokenEstimate;
+    }
+
+    public Integer getContextQueryCharCount() {
+        return contextQueryCharCount;
+    }
+
+    public void setContextQueryCharCount(Integer contextQueryCharCount) {
+        this.contextQueryCharCount = contextQueryCharCount;
+    }
+
+    public Integer getContextSourcesSnippetCharCount() {
+        return contextSourcesSnippetCharCount;
+    }
+
+    public void setContextSourcesSnippetCharCount(Integer contextSourcesSnippetCharCount) {
+        this.contextSourcesSnippetCharCount = contextSourcesSnippetCharCount;
     }
 
     public Boolean getAgentLatencyBudgetExceeded() {
