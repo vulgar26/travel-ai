@@ -19,6 +19,7 @@
 | `sources[]` 与 SSE 引用 | 评测 JSON 与 SSE 文本首包 **同源、不同载体** | [`docs/eval/SOURCES_EVAL_VS_SSE.md`](eval/SOURCES_EVAL_VS_SSE.md) |
 | 与 eval 的对接（`X-Eval-Gateway-Key`、`X-Eval-*`、超时墙钟） | `EvalGatewayAuthFilter`、`AppEvalProperties`、`EvalChatController`；矩阵 §2 |
 | P1+（反馈表、ReAct、多跳、rerank、DAG…） | 按 SSOT 分期立项；本文件 P2–P3 与部分 P1 为增量工程，不与 SSOT 逐字重复 |
+| P1-0 harness（`meta` 扩展、`config_snapshot`、上下文截断等） | **第 1 步**：缺口盘点 [`docs/eval/P1_HARNESS_GAP.md`](eval/P1_HARNESS_GAP.md)；后续按该文 §3 分 PR 实现 |
 
 ### 工程债（REST / 鉴权错误体）— 收口说明
 
@@ -332,6 +333,7 @@
 - [x] P0 **比例型门槛**的验收步骤已文档化（[`docs/eval/P0_THRESHOLD_RUNBOOK.md`](eval/P0_THRESHOLD_RUNBOOK.md)；达标仍依赖每次全量 `run.report`）  
 - [x] 评测口 **对抗 / 安全 / rag/tool** 确定性用例与建议 **`tags`** 已写入 [`docs/eval.md`](eval.md)（与 `EvalChatSafetyGate` 等源码对齐；批量导入 CI 仍待办）  
 - [x] **`sources[]`（eval）与 SSE「引用片段」** 同源差异与对账方式已文档化（[`docs/eval/SOURCES_EVAL_VS_SSE.md`](eval/SOURCES_EVAL_VS_SSE.md)）  
+- [x] P1-0 harness **第 1 小步**：`EvalChatMeta` 与 SSOT 差距已盘点（[`docs/eval/P1_HARNESS_GAP.md`](eval/P1_HARNESS_GAP.md)；尚未新增运行时字段）  
 - [x] `QueryRewriter` 畸形输出有兜底；检索结果按 id 显式去重（`TravelAgent#mergeAndDedupeDocuments`）  
 - [x] `KnowledgeServiceImplTest` 在 `@BeforeEach` 绑定 `SecurityContext`（等价于已登录 `demo`，见 P4-1）  
 - [x] 至少一条 JWT 链路与 eval 网关链路的集成测试（`TravelAiApplicationIntegrationTest`，含未授权访问 JSON 断言）  

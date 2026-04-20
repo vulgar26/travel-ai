@@ -31,7 +31,7 @@
 - **P0 数值门槛**（如 `CONTRACT_VIOLATION=0`、`UNKNOWN`/`TIMEOUT` 占比、`plan_parse_outcome=failed` 占比等）：字段与降级路径已具备；**是否长期达标**仍依赖固定 dataset 与每次全量 run 的 **`run.report`** 聚合。**已定稿**：可复现核对步骤见 **[`docs/eval/P0_THRESHOLD_RUNBOOK.md`](eval/P0_THRESHOLD_RUNBOOK.md)**（分母、公式、与 `meta`/`latency_ms` 的对照及离线烟测范围）。文中登记的 `run_id` 仅为**时点证据**，换题库须重跑并更新登记。
 - **对抗与安全样例**：工程侧有门控与错误码；**已定稿**：`docs/eval.md` §「评测口：对抗与安全 + RAG/tool 确定性用例」给出与 **`EvalChatSafetyGate` / `EvalQuerySafetyPolicy` / `EvalBehaviorPolicy`** 对齐的示例 `query`、预期 `behavior`/`error_code` 及**建议数据集 `tags`**（便于导入 Vagent 与分桶）。**仍待推进**：把行表批量导入为 ≥20 条正式 case、CI 对公网 target 全量跑（见未做清单）。
 - **`sources[]` 系统构造**：评测路径由 **`EvalChatService#retrieveEvidence`** 从 `Document` 映射为 **`sources[]` / `retrieval_hits[]`**（禁止 LLM 编造）。**SSE** 由 **`TravelAgent#buildCitationBlock`** 输出「【引用片段】」纯文本；**同源、不同载体**（snippet 截断 300 vs 200 等）。**已定稿**：[**`docs/eval/SOURCES_EVAL_VS_SSE.md`**](eval/SOURCES_EVAL_VS_SSE.md)。**仍可选**：统一截断长度、或增加 SSE 结构化 `sources` 事件（见该文 §4）。
-- **P1-0 harness 扩展项**：如显式 **token 预算**、`context_truncated`、`config_snapshot_json` 全量、断点恢复、Supervisor-Worker 等：**未**按 SSOT 满配。
+- **P1-0 harness 扩展项**：如显式 **token 预算**、统一 **`context_truncated`**、`config_snapshot_json`、断点恢复、Supervisor-Worker 等：**未**按 SSOT 满配。**第 1 小步（仅文档）**：[**`docs/eval/P1_HARNESS_GAP.md`**](eval/P1_HARNESS_GAP.md) 已盘点当前 `meta` 已具备项与缺口，并给出后续实现顺序建议。
 
 ### 本仓库尚未做（仍为规划 / P1+）
 

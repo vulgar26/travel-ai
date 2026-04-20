@@ -2,7 +2,7 @@
 
 **维护约定**：以 `src/main/java` 与 `application*.yml` 为真源；本文件随合入更新。**外部计划**路径：`D:\Projects\Vagent\plans\travel-ai-upgrade.md`（不在本仓库内，此处仅摘要对照）。
 
-**更新日期**：2026-04-18（§4/§5 与代码真源同步；§4 `attack/*` 文档对齐 2026-04-19）
+**更新日期**：2026-04-19（§4/§5：含 `attack/*`、`P1_HARNESS_GAP` 文档对齐）
 
 ---
 
@@ -77,6 +77,7 @@
 **当前推荐执行顺序**：
 
 1. ~~**长期记忆与隐私治理**（`user_profile`、删除权、可选 prompt 注入）~~：**已收口（基线）**；后续可选：自动摘要写入（须用户确认）、更细 retention。  
-2. ~~**工程债（错误体）**~~：**已收口（鉴权 + 常见 REST）**：除 `/knowledge/upload` 与 `KnowledgeControllerAdvice` 外，`SecurityConfig` 的 401/403 与 `RestApiExceptionHandler`（`ResponseStatusException` 等）均为 JSON；评测网关错误与上述同形。**可选后续**：将 **429** 限流体从 `code` 对齐为 `error` 字段，或统一为同一 DTO。
+2. ~~**工程债（错误体）**~~：**已收口（鉴权 + 常见 REST）**：除 `/knowledge/upload` 与 `KnowledgeControllerAdvice` 外，`SecurityConfig` 的 401/403 与 `RestApiExceptionHandler`（`ResponseStatusException` 等）均为 JSON；评测网关错误与上述同形。**可选后续**：将 **429** 限流体从 `code` 对齐为 `error` 字段，或统一为同一 DTO。  
+3. **P1-0 harness 分步**：**第 1 步** 缺口盘点见 **`docs/eval/P1_HARNESS_GAP.md`**（`context_truncated` / `config_snapshot` 等仍待代码迭代）。
 
 **维护提醒**：若调整 SSE 线性阶段顺序，须同步 `EvalLinearAgentPipeline`、`EvalChatService` 中手工 `stage_order` 与相关契约测试。  
