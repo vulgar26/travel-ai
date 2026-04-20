@@ -37,7 +37,7 @@
 | RAG stub、`eval_rag_scenario` | **已满足** | `EvalRagGateScenarios.java` |
 | TOOL stub、`eval_tool_scenario` | **已满足** | `EvalToolStageRunner.java` |
 | 输入安全门控（Day9） | **已满足** | `EvalChatSafetyGate.java`、`EvalQuerySafetyPolicy.java` |
-| `sources[]` 系统生成、非 LLM 编造 | **评测路径已构造** | `EvalChatService.java` |
+| `sources[]` 系统生成、非 LLM 编造；与 SSE 引用块对齐说明 | **已满足（评测 JSON）**；SSE 为纯文本首包，字段粒度见 **`docs/eval/SOURCES_EVAL_VS_SSE.md`** | `EvalChatService.java`、`TravelAgent#buildCitationBlock` |
 | Reflection / recovery：`meta.recovery_action`、`meta.self_check`、`eval_reflection_scenario` | **已满足（stub）**：`EvalReflectionSupport` + `app.eval.reflection-meta-enabled`；与 `replan_count=0` 正交，无额外 plan LLM | `EvalReflectionSupport.java`、`EvalChatMeta.java`、`EvalChatRequest.java`、`EvalChatService.java` |
 
 ---

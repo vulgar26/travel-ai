@@ -16,6 +16,7 @@
 | Evaluation / Execution Harness、`meta` 可观测字段 | 矩阵 §1–2；`TravelAgent`、`EvalChatService`、`EvalLinearAgentPipeline` |
 | P0 合规（PII、最小化、保留期、删除权、日志脱敏） | 矩阵 §1、§4；`UserProfileController`、`application.yml`（画像/确认/注入） |
 | P0 验收门槛（`CONTRACT_VIOLATION`、`UNKNOWN`、`TIMEOUT`、`stage_order`、`plan_parse_*`、`replan_count` 等） | 以外部文档阈值为标准；**操作步骤**见 [`docs/eval/P0_THRESHOLD_RUNBOOK.md`](eval/P0_THRESHOLD_RUNBOOK.md)；eval **`run.report`** 聚合 + SSE **`event: plan_parse`** 与日志对账 |
+| `sources[]` 与 SSE 引用 | 评测 JSON 与 SSE 文本首包 **同源、不同载体** | [`docs/eval/SOURCES_EVAL_VS_SSE.md`](eval/SOURCES_EVAL_VS_SSE.md) |
 | 与 eval 的对接（`X-Eval-Gateway-Key`、`X-Eval-*`、超时墙钟） | `EvalGatewayAuthFilter`、`AppEvalProperties`、`EvalChatController`；矩阵 §2 |
 | P1+（反馈表、ReAct、多跳、rerank、DAG…） | 按 SSOT 分期立项；本文件 P2–P3 与部分 P1 为增量工程，不与 SSOT 逐字重复 |
 
@@ -330,6 +331,7 @@
 - [x] Filter 链 **401/403** 与 `RestApiExceptionHandler` 对常见 4xx 返回统一 JSON（`JsonApiErrorSupport`；与 `EVAL_GATEWAY_*` 同形）  
 - [x] P0 **比例型门槛**的验收步骤已文档化（[`docs/eval/P0_THRESHOLD_RUNBOOK.md`](eval/P0_THRESHOLD_RUNBOOK.md)；达标仍依赖每次全量 `run.report`）  
 - [x] 评测口 **对抗 / 安全 / rag/tool** 确定性用例与建议 **`tags`** 已写入 [`docs/eval.md`](eval.md)（与 `EvalChatSafetyGate` 等源码对齐；批量导入 CI 仍待办）  
+- [x] **`sources[]`（eval）与 SSE「引用片段」** 同源差异与对账方式已文档化（[`docs/eval/SOURCES_EVAL_VS_SSE.md`](eval/SOURCES_EVAL_VS_SSE.md)）  
 - [x] `QueryRewriter` 畸形输出有兜底；检索结果按 id 显式去重（`TravelAgent#mergeAndDedupeDocuments`）  
 - [x] `KnowledgeServiceImplTest` 在 `@BeforeEach` 绑定 `SecurityContext`（等价于已登录 `demo`，见 P4-1）  
 - [x] 至少一条 JWT 链路与 eval 网关链路的集成测试（`TravelAiApplicationIntegrationTest`，含未授权访问 JSON 断言）  

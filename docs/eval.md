@@ -8,6 +8,7 @@
 - **评测批跑**：使用 **非流式** `POST /api/v1/eval/chat`；除业务头外还须 **`X-Eval-Gateway-Key`**（与 `APP_EVAL_GATEWAY_KEY` / `app.eval.gateway-key` 一致），以及 eval 侧契约要求的 **`X-Eval-Token`**、`X-Eval-Target-Id`、`X-Eval-Dataset-Id`、`X-Eval-Case-Id` 等（见 Vagent `eval-upgrade.md` E7）。  
 - **实现清单**：[`docs/IMPLEMENTATION_MATRIX.md`](IMPLEMENTATION_MATRIX.md)。
 - **P0 数值门槛（eval 批跑）**：与手工表互补，见 [`eval/P0_THRESHOLD_RUNBOOK.md`](eval/P0_THRESHOLD_RUNBOOK.md)（`run.report` 聚合与 SSOT 比例核对）。
+- **`sources[]` vs SSE 引用块**：评测 JSON 与首包纯文本的**同源差异**见 [`eval/SOURCES_EVAL_VS_SSE.md`](SOURCES_EVAL_VS_SSE.md)。
 
 填写说明：每次改 `TravelAgent` / 检索策略后，用同一套问题跑一遍，在「观察」列记 **命中条数 / 是否胡编 / 是否引用天气** 等。
 
