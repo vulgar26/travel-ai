@@ -547,6 +547,10 @@ public class EvalChatService {
         meta.setContextTokenEstimate(tokenEst);
         meta.setContextBudgetSourcesSnippetMaxChars(300);
         meta.setContextBudgetCharsPerTokenEstimate(charsPerToken);
+        // P1-0 组合策略：默认以 estimate 为准；若后续 real LLM 调用拿到 provider usage，会覆盖为 provider。
+        if (meta.getTokenSource() == null) {
+            meta.setTokenSource("estimate");
+        }
     }
 
     private static void attachRetrievalMembershipMeta(

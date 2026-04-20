@@ -23,6 +23,11 @@ public class AppEvalProperties {
      */
     private boolean reflectionMetaEnabled = true;
 
+    /**
+     * 是否允许评测口以“真实 LLM 调用模式”运行（用于获取 provider usage 真值）。默认 false：避免 CI/本地误触发外网调用与成本。
+     */
+    private boolean llmRealEnabled = false;
+
     public String getGatewayKey() {
         return gatewayKey != null ? gatewayKey : "";
     }
@@ -53,5 +58,13 @@ public class AppEvalProperties {
 
     public void setReflectionMetaEnabled(boolean reflectionMetaEnabled) {
         this.reflectionMetaEnabled = reflectionMetaEnabled;
+    }
+
+    public boolean isLlmRealEnabled() {
+        return llmRealEnabled;
+    }
+
+    public void setLlmRealEnabled(boolean llmRealEnabled) {
+        this.llmRealEnabled = llmRealEnabled;
     }
 }

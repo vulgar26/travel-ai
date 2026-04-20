@@ -94,6 +94,20 @@ public class EvalChatMeta {
     private Integer contextBudgetCharsPerTokenEstimate;
 
     /**
+     * token 统计来源：{@code provider|estimate|tokenizer}。\n
+     * <p>
+     * P1-0 组合策略：默认 {@code estimate}（离线稳定）；在显式启用 real LLM 且可提取 usage 时为 {@code provider}。
+     */
+    private String tokenSource;
+
+    /** 真 token（若可得）：prompt/input tokens。 */
+    private Integer promptTokens;
+    /** 真 token（若可得）：completion/output tokens。 */
+    private Integer completionTokens;
+    /** 真 token（若可得）：total tokens（可由前两者推导）。 */
+    private Integer totalTokens;
+
+    /**
      * 当 {@code latency_ms}（Controller 写入）大于 {@link #agentTotalTimeoutMs} 时为 {@code true}；
      * 未写入总超时或未比较时为 {@code null}。
      */
@@ -348,6 +362,38 @@ public class EvalChatMeta {
 
     public void setContextBudgetCharsPerTokenEstimate(Integer contextBudgetCharsPerTokenEstimate) {
         this.contextBudgetCharsPerTokenEstimate = contextBudgetCharsPerTokenEstimate;
+    }
+
+    public String getTokenSource() {
+        return tokenSource;
+    }
+
+    public void setTokenSource(String tokenSource) {
+        this.tokenSource = tokenSource;
+    }
+
+    public Integer getPromptTokens() {
+        return promptTokens;
+    }
+
+    public void setPromptTokens(Integer promptTokens) {
+        this.promptTokens = promptTokens;
+    }
+
+    public Integer getCompletionTokens() {
+        return completionTokens;
+    }
+
+    public void setCompletionTokens(Integer completionTokens) {
+        this.completionTokens = completionTokens;
+    }
+
+    public Integer getTotalTokens() {
+        return totalTokens;
+    }
+
+    public void setTotalTokens(Integer totalTokens) {
+        this.totalTokens = totalTokens;
     }
 
     public Boolean getAgentLatencyBudgetExceeded() {

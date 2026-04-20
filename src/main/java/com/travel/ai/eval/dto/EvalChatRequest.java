@@ -46,6 +46,12 @@ public class EvalChatRequest {
      */
     private String evalReflectionScenario;
 
+    /**
+     * 可选：评测口 LLM 模式。默认 {@code stub}（不调用外网模型）。\n
+     * 若设置为 {@code real}，且服务端 {@code app.eval.llm-real-enabled=true}，则允许触发一次真实 LLM 调用以获取 provider usage（token 真值）。
+     */
+    private String llmMode;
+
     public String getQuery() {
         return query;
     }
@@ -100,5 +106,13 @@ public class EvalChatRequest {
 
     public void setEvalReflectionScenario(String evalReflectionScenario) {
         this.evalReflectionScenario = evalReflectionScenario;
+    }
+
+    public String getLlmMode() {
+        return llmMode;
+    }
+
+    public void setLlmMode(String llmMode) {
+        this.llmMode = llmMode;
     }
 }
