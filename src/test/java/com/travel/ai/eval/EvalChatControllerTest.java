@@ -208,6 +208,21 @@ class EvalChatControllerTest {
                 .andExpect(jsonPath("$.meta.context_truncation_reasons[0]").value("sources_snippet_truncated"));
     }
 
+    @Test
+    void metaConfigSnapshotHash_presentAndStableFields() throws Exception {
+        String body = """
+                {"query":"评测：config snapshot hash should exist","mode":"EVAL"}
+                """;
+        mockMvc.perform(post("/api/v1/eval/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.meta.config_snapshot_hash").isString())
+                .andExpect(jsonPath("$.meta.config_snapshot_hash").isNotEmpty())
+                .andExpect(jsonPath("$.meta.config_snapshot_hash_alg").value("SHA-256"))
+                .andExpect(jsonPath("$.meta.config_snapshot_hash_scope").value("app.agent.* + app.eval.* (safe whitelist)"));
+    }
+
     /**
      * Day3：多组输入下 {@code replan_count} 恒为 P0 固定值，且 {@code step_count == stage_order.length}。
      */

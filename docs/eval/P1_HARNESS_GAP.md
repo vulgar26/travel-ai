@@ -30,7 +30,7 @@
 
 | SSOT / 叙述项 | 当前状态 | 建议下一小步（按风险从低到高） |
 |---------------|----------|----------------------------------|
-| **`config_snapshot_json` / `config_snapshot_id`** | `meta` **无**整段配置快照；仅有分散超时等字段 | 新增可选 `meta.config_snapshot`（**小 JSON**：`app.agent.*` 子集 + `app.eval.*` 关键键），或仅 **`config_snapshot_hash`**（SHA-256 配置串）避免体积与泄密 |
+| **`config_snapshot_json` / `config_snapshot_id`** | **已做（hash）**：新增 `meta.config_snapshot_hash`（含 `alg/scope`），覆盖 `app.agent.*` 与 `app.eval.*` 的白名单键；仍未输出明文 JSON | 后续如需可回放明细，再加小型 `meta.config_snapshot`（严格白名单，不含密钥） |
 | **统一 `context_truncated`**（历史 / 检索 / 工具块总预算） | **已做（评测路径）**：新增 `meta.context_truncated` + `meta.context_truncation_reasons[]`（当前覆盖 `sources_snippet_truncated` 与 `tool_output_truncated`） | 后续可扩展到历史对话截断 / promptBase 截断等更“总预算”的场景 |
 | **显式 token 计数**（`prompt_tokens` 等） | **未**接入 tokenizer；日志有 perf，**无**稳定 `meta` 数字 | 依赖 Spring AI / 供应商 API 若可取得则写入；否则用 **字符预算近似** + 文档声明误差 |
 | **回放 / 断点恢复**（`plan_raw_hash`、按 `conversationId` 恢复 stage） | **未**做 | 独立里程碑；先文档与表结构，再实现 |
@@ -43,7 +43,7 @@
 
 1. 缺口盘点与链接进 `README` / `UPGRADE_PLAN` / `travel-ai-upgrade` —— **已完成**。  
 2. **`context_truncated` + 原因列表**：仅评测路径、仅截断可客观判定处（如 `sources[].snippet` 达 300、或工具输出截断处统一 OR）—— **已完成**。  
-3. **`config_snapshot_hash` 或小 JSON**：从 `Environment` / `AppAgentProperties` 序列化白名单键。  
+3. **`config_snapshot_hash` 或小 JSON**：从 `Environment` / `AppAgentProperties` 序列化白名单键 —— **已完成（hash）**。  
 4. **Token 或字符预算**：与产品确认是否必须 tokenizer 真值。
 
 每步单独 PR：便于 `EvalChatControllerTest` 与 `run.report` 回归。

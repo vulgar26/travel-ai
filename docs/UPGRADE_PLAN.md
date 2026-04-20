@@ -335,6 +335,7 @@
 - [x] **`sources[]`（eval）与 SSE「引用片段」** 同源差异与对账方式已文档化（[`docs/eval/SOURCES_EVAL_VS_SSE.md`](eval/SOURCES_EVAL_VS_SSE.md)）  
 - [x] P1-0 harness：`EvalChatMeta` 与 SSOT 差距已盘点（[`docs/eval/P1_HARNESS_GAP.md`](eval/P1_HARNESS_GAP.md)）  
 - [x] P1-0 harness：评测口 `meta.context_truncated` + `context_truncation_reasons[]` 已落地（见同上；单测覆盖 `sources_snippet_truncated`）  
+- [x] P1-0 harness：评测口 `meta.config_snapshot_hash`（含 `alg/scope`）已落地（用于 A/B 对账是否“只改了一个开关”）  
 - [x] `QueryRewriter` 畸形输出有兜底；检索结果按 id 显式去重（`TravelAgent#mergeAndDedupeDocuments`）  
 - [x] `KnowledgeServiceImplTest` 在 `@BeforeEach` 绑定 `SecurityContext`（等价于已登录 `demo`，见 P4-1）  
 - [x] 至少一条 JWT 链路与 eval 网关链路的集成测试（`TravelAiApplicationIntegrationTest`，含未授权访问 JSON 断言）  

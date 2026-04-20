@@ -29,6 +29,8 @@ import org.springframework.ai.vectorstore.filter.Filter;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -142,6 +144,58 @@ public class EvalChatService {
         meta.setAgentMaxStepsConfigured(appAgentProperties.getMaxSteps());
         meta.setAgentToolTimeoutMs(appAgentProperties.getToolTimeout().toMillis());
         meta.setAgentLlmStreamTimeoutMs(appAgentProperties.getLlmStreamTimeout().toMillis());
+        stampConfigSnapshotHashOnMeta(meta);
+    }
+
+    /**
+     * P1-0 harness：用固定白名单键拼出稳定快照串并取 SHA-256。\n
+     * 仅输出 hash，不输出明文配置（避免泄露与体积膨胀）。
+     */
+    private void stampConfigSnapshotHashOnMeta(EvalChatMeta meta) {
+        if (meta == null) {
+            return;
+        }
+        String snapshot = buildConfigSnapshotString();
+        if (snapshot.isBlank()) {
+            return;
+        }
+        String hash = sha256Hex(snapshot);
+        if (hash.isBlank()) {
+            return;
+        }
+        meta.setConfigSnapshotHash(hash);
+        meta.setConfigSnapshotHashAlg("SHA-256");
+        meta.setConfigSnapshotHashScope("app.agent.* + app.eval.* (safe whitelist)");
+    }
+
+    private String buildConfigSnapshotString() {
+        // 只选择“对行为/验收门槛有影响”的键；严禁把密钥类配置写入 snapshot 明文（即使最终只 hash）。
+        // 采用固定顺序拼接，保证 hash 稳定。
+        StringBuilder sb = new StringBuilder();
+        sb.append("app.agent.total-timeout-ms=").append(appAgentProperties.getTotalTimeout().toMillis()).append('\n');
+        sb.append("app.agent.max-steps=").append(appAgentProperties.getMaxSteps()).append('\n');
+        sb.append("app.agent.tool-timeout-ms=").append(appAgentProperties.getToolTimeout().toMillis()).append('\n');
+        sb.append("app.agent.llm-stream-timeout-ms=").append(appAgentProperties.getLlmStreamTimeout().toMillis()).append('\n');
+
+        sb.append("app.eval.tool-timeout-ms=").append(appEvalProperties.getToolTimeoutMs()).append('\n');
+        sb.append("app.eval.reflection-meta-enabled=").append(appEvalProperties.isReflectionMetaEnabled()).append('\n');
+        sb.append("app.eval.stub-work-sleep-ms=").append(appEvalProperties.getStubWorkSleepMs()).append('\n');
+        return sb.toString();
+    }
+
+    private static String sha256Hex(String s) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] dig = md.digest(s.getBytes(StandardCharsets.UTF_8));
+            StringBuilder hex = new StringBuilder(dig.length * 2);
+            for (byte b : dig) {
+                hex.append(Character.forDigit((b >> 4) & 0xF, 16));
+                hex.append(Character.forDigit(b & 0xF, 16));
+            }
+            return hex.toString();
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     private void maybeStubWorkSleepForTests(String requestId) {

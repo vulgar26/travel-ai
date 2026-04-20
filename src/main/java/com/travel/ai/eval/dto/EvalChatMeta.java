@@ -59,6 +59,19 @@ public class EvalChatMeta {
     private Long agentLlmStreamTimeoutMs;
 
     /**
+     * 执行配置快照（hash）：用于 compare / 回放时确认“同一题库下是否确实仅改了某个开关”。\n
+     * <p>
+     * 约束：仅 hash，不回显配置原文（避免泄露密钥/环境细节与体积膨胀）。
+     */
+    private String configSnapshotHash;
+
+    /** 与 {@link #configSnapshotHash} 同时出现；固定为 {@code SHA-256}。 */
+    private String configSnapshotHashAlg;
+
+    /** 与 {@link #configSnapshotHash} 同时出现；描述 hash 覆盖的配置键范围（人读）。 */
+    private String configSnapshotHashScope;
+
+    /**
      * 当 {@code latency_ms}（Controller 写入）大于 {@link #agentTotalTimeoutMs} 时为 {@code true}；
      * 未写入总超时或未比较时为 {@code null}。
      */
@@ -241,6 +254,30 @@ public class EvalChatMeta {
 
     public void setAgentLlmStreamTimeoutMs(Long agentLlmStreamTimeoutMs) {
         this.agentLlmStreamTimeoutMs = agentLlmStreamTimeoutMs;
+    }
+
+    public String getConfigSnapshotHash() {
+        return configSnapshotHash;
+    }
+
+    public void setConfigSnapshotHash(String configSnapshotHash) {
+        this.configSnapshotHash = configSnapshotHash;
+    }
+
+    public String getConfigSnapshotHashAlg() {
+        return configSnapshotHashAlg;
+    }
+
+    public void setConfigSnapshotHashAlg(String configSnapshotHashAlg) {
+        this.configSnapshotHashAlg = configSnapshotHashAlg;
+    }
+
+    public String getConfigSnapshotHashScope() {
+        return configSnapshotHashScope;
+    }
+
+    public void setConfigSnapshotHashScope(String configSnapshotHashScope) {
+        this.configSnapshotHashScope = configSnapshotHashScope;
     }
 
     public Boolean getAgentLatencyBudgetExceeded() {
