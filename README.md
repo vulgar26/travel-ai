@@ -35,9 +35,9 @@ flowchart LR
   TA --> LLM
 ```
 
-对话在 `TravelAgent` 内按固定顺序执行：**计划 → 检索 → 工具 → 门控 → 流式生成**；首包 SSE 为引用片段，随后为正文与心跳。细节见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+对话在 `TravelAgent` 内按固定顺序执行：**计划 → 检索 → 工具 → 门控 → 流式生成**；SSE 在引用片段与正文之前先发 **`event: plan_parse`**（JSON 内含 `plan_parse_outcome`、`plan_parse_attempts`、`plan_draft_source`、`plan_parse_resolved`、`request_id`），随后为引用片段、`data` 正文与 `comment` 心跳。细节见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
-**PLAN 与评测对账**：草案经 `PlanParseCoordinator`（附录 E、`PlanParser`、至多一次 repair，与 `POST /api/v1/eval/chat` 同源）。成功解析后打 **`[plan]`** 行：`draft_source`（`llm` / `config_disabled` / `fallback_llm_error`）、`plan_parse_outcome`（`success` / `repaired`）、`plan_parse_attempts`（`1` 或 `2`）、`resolved`（`primary` / `fallback_template` / `builtin_minimal`），字段名与评测响应里的 `meta.plan_parse_*` 一致，便于把 SSE 日志与 eval run 对齐。
+**PLAN 与评测对账**：草案经 `PlanParseCoordinator`（附录 E、`PlanParser`、至多一次 repair，与 `POST /api/v1/eval/chat` 同源）。成功解析后打 **`[plan]`** 日志，且与 SSE **`plan_parse`** 事件同字段口径：`plan_draft_source`（`llm` / `config_disabled` / `fallback_llm_error`）、`plan_parse_outcome`（`success` / `repaired`）、`plan_parse_attempts`（`1` 或 `2`）、`plan_parse_resolved`（`primary` / `fallback_template` / `builtin_minimal`），与评测 `meta.plan_parse_*` 一致，便于把 SSE 与 eval run 对齐。
 
 ---
 
@@ -98,7 +98,7 @@ npm run dev
 | `GET` | `/travel/profile/pending-extraction?conversationId=…` | Bearer JWT | 读取待确认的合并预览（无则 **404**） |
 | `POST` | `/travel/profile/confirm-extraction` | Bearer JWT | 体 `{"conversationId":"…"}` 将待确认合并结果写入 PG 并清除 pending |
 | `DELETE` | `/travel/profile/pending-extraction?conversationId=…` | Bearer JWT | 放弃待确认（**204**） |
-| `GET` | `/travel/chat/{conversationId}?query=...` | Bearer JWT | **SSE**（`text/event-stream`）；`conversationId` 须符合字母数字与 `_-`，且长度 ≤128 |
+| `GET` | `/travel/chat/{conversationId}?query=...` | Bearer JWT | **SSE**（`text/event-stream`）；`conversationId` 须符合字母数字与 `_-`，且长度 ≤128；流首含 **`event: plan_parse`**（JSON 元数据），随后为引用与正文（见上文） |
 | `POST` | `/api/v1/eval/chat` | **网关密钥** `X-Eval-Gateway-Key` + 已认证主体 | 评测用 **JSON**（非流式）；eval 侧另有 `X-Eval-Token` 等 membership 头，见 Vagent `eval-upgrade.md` |
 | `GET` | `/actuator/health`、`/actuator/info` | 否 | 健康与信息 |
 

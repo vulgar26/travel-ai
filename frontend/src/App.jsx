@@ -1,11 +1,26 @@
 import { useCallback, useRef, useState } from 'react'
 import './App.css'
 
-/** 解析 text/event-stream：按行处理 data: 与注释行 */
-async function readSseStream(response, onDataLine, onComment) {
+/**
+ * 解析 text/event-stream：识别 {@code event:} 与 {@code data:}；无 {@code event:} 时视为 {@code message}。
+ * @param {(data: string) => void} onDataLine
+ * @param {(line: string) => void} [onComment]
+ * @param {(eventName: string, data: string) => void} [onNamedData] — 如 {@code plan_parse}
+ */
+async function readSseStream(response, onDataLine, onComment, onNamedData) {
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buf = ''
+  let pendingEvent = ''
+  const dispatchData = (payload) => {
+    const name = pendingEvent || 'message'
+    if (name === 'message') {
+      onDataLine(payload)
+    } else if (onNamedData) {
+      onNamedData(name, payload)
+    }
+    pendingEvent = ''
+  }
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
@@ -14,8 +29,14 @@ async function readSseStream(response, onDataLine, onComment) {
     buf = parts.pop() ?? ''
     for (const raw of parts) {
       const line = raw.replace(/\r$/, '')
-      if (line.startsWith('data:')) {
-        onDataLine(line.slice(5).trimStart())
+      if (line.trim() === '') {
+        pendingEvent = ''
+        continue
+      }
+      if (line.startsWith('event:')) {
+        pendingEvent = line.slice(6).trimStart()
+      } else if (line.startsWith('data:')) {
+        dispatchData(line.slice(5).trimStart())
       } else if (line.startsWith(':')) {
         onComment?.(line)
       }
@@ -23,7 +44,7 @@ async function readSseStream(response, onDataLine, onComment) {
   }
   if (buf.trim()) {
     const line = buf.replace(/\r$/, '')
-    if (line.startsWith('data:')) onDataLine(line.slice(5).trimStart())
+    if (line.startsWith('data:')) dispatchData(line.slice(5).trimStart())
   }
 }
 
@@ -37,6 +58,7 @@ export default function App() {
   )
   const [query, setQuery] = useState('给我一份成都两天一夜行程')
   const [output, setOutput] = useState('')
+  const [planParseInfo, setPlanParseInfo] = useState('')
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
   const [uploadHint, setUploadHint] = useState('')
@@ -188,6 +210,7 @@ export default function App() {
   const startChat = useCallback(async () => {
     setError('')
     setOutput('')
+    setPlanParseInfo('')
     if (!token) {
       setError('请先登录')
       return
@@ -221,6 +244,18 @@ export default function App() {
         res,
         (data) => setOutput((prev) => prev + data),
         () => {},
+        (eventName, data) => {
+          if (eventName === 'plan_parse') {
+            try {
+              const j = JSON.parse(data)
+              setPlanParseInfo(
+                `${j.plan_parse_outcome ?? '?'} · attempts ${j.plan_parse_attempts ?? '?'} · ${j.plan_parse_resolved ?? ''} · draft ${j.plan_draft_source ?? ''}`,
+              )
+            } catch {
+              setPlanParseInfo(data)
+            }
+          }
+        },
       )
       setStatus('流结束')
     } catch (e) {
@@ -333,6 +368,11 @@ export default function App() {
         </div>
       </section>
 
+      {planParseInfo ? (
+        <p className="mono small status" style={{ margin: '0 1rem' }} title="SSE event: plan_parse">
+          plan_parse: {planParseInfo}
+        </p>
+      ) : null}
       {status ? <p className="status">{status}</p> : null}
       {error ? <p className="error">{error}</p> : null}
 

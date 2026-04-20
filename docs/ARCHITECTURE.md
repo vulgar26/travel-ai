@@ -8,7 +8,7 @@
 → `TravelController`：可选 `POST /travel/conversations` 登记会话；`GET /travel/chat/{conversationId}?query=...`（路径校验；`app.conversation.require-registration` 时校验 Redis 归属）  
 → `TravelAgent.chat(conversationId, userMessage)`  
 → **线性阶段**（同一 `requestId` 日志）：`PLAN`（结构化计划 JSON，可配置 LLM）→ `RETRIEVE` → `TOOL` → `GUARD` → `WRITE`；其中 `RETRIEVE`/`TOOL`/`GUARD` 是否**物理执行**由解析后的 plan `steps[*].stage` 决定（`PlanPhysicalStagePolicy`，含 `RETRIEVE` 时隐式 `GUARD`）  
-→ SSE：`引用片段` 首包 + 正文 `data` + `comment` 心跳
+→ SSE：首段 **`event: plan_parse`**（`data` 为 JSON，字段与评测 `meta.plan_parse_*` / 日志 `[plan]` 对齐）→ `引用片段` 首包 `data` → 正文 `data` → `comment` 心跳
 
 **超时（`application.yml` → `app.agent`）**：`total-timeout` 包住整段 SSE 合并流；`llm-stream-timeout` 仅作用于 WRITE 的 `ChatClient` 流；`tool-timeout` 作用于天气 OkHttp；`max-steps` 为配置下限校验（当前固定流水线为 5 步，配置须 ≥5）。
 

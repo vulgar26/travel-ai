@@ -53,7 +53,7 @@ import static com.travel.ai.tools.ToolObservability.log;
  * 在附录 E {@code steps[*].stage} 未声明某阶段时，<strong>物理跳过</strong>该阶段（见 {@link PlanPhysicalStagePolicy}；{@code GUARD}
  * 在含 {@code RETRIEVE} 时仍隐式执行以保留零命中门控）。
  * <p>
- * 大白话：用户一问进来，服务端按固定几步处理——先产出结构化计划（可配置调用 LLM）、再查资料、再按需调工具、再过门控（默认「知识库零命中则澄清不调 LLM」）、最后才调大模型流式写回答。
+ * 大白话：用户一问进来，服务端按固定几步处理——先产出结构化计划（可配置调用 LLM）、再查资料、再按需调工具、再过门控（默认「知识库零命中则澄清不调 LLM」）、最后才调大模型流式写回答。SSE 上在引用与正文之前先发 {@code event: plan_parse} 携带解析元数据，便于与评测对账。
  * <p>
  * 检索合并阶段使用 {@link #mergeAndDedupeDocuments(List, int)}：按文档 id（无 id 时退化为正文 hash）
  * 显式去重，避免依赖 {@link Document#equals} 实现细节（UPGRADE P2-2）。
@@ -199,6 +199,8 @@ public class TravelAgent {
         Flux<ServerSentEvent<String>> tokenEvents = contentFlux.map(chunk ->
                 ServerSentEvent.<String>builder().data(chunk).build());
 
+        Flux<ServerSentEvent<String>> planParseMetaFlux = Flux.just(buildPlanParseMetaEvent(ctx));
+
         Flux<ServerSentEvent<String>> citationFlux = Flux.just(
                 ServerSentEvent.<String>builder().data(ctx.citationBlock).build()
         );
@@ -207,7 +209,7 @@ public class TravelAgent {
                 .takeUntilOther(contentFlux.then())
                 .map(tick -> ServerSentEvent.<String>builder().comment("keepalive").build());
 
-        Flux<ServerSentEvent<String>> merged = Flux.concat(citationFlux, Flux.merge(tokenEvents, keepAlive));
+        Flux<ServerSentEvent<String>> merged = Flux.concat(planParseMetaFlux, citationFlux, Flux.merge(tokenEvents, keepAlive));
         return merged
                 .timeout(agentTotalTimeout)
                 .onErrorResume(t -> isTotalTimeout(t),
@@ -358,6 +360,7 @@ public class TravelAgent {
         PlanParseCoordinator.Result first = planParseCoordinator.parseWithOptionalRepair(ctx.planJson);
         if (!first.failed()) {
             ctx.planJson = first.effectivePlanJson();
+            recordPlanParseMeta(ctx, planDraftSource, first, "primary");
             logPlanParseResolution(ctx.requestId, planDraftSource, first, "primary");
             return;
         }
@@ -370,6 +373,7 @@ public class TravelAgent {
         PlanParseCoordinator.Result second = planParseCoordinator.parseWithOptionalRepair(fallbackPlanJson("plan_parse_rejected"));
         if (!second.failed()) {
             ctx.planJson = second.effectivePlanJson();
+            recordPlanParseMeta(ctx, planDraftSource, second, "fallback_template");
             logPlanParseResolution(ctx.requestId, planDraftSource, second, "fallback_template");
             return;
         }
@@ -377,6 +381,7 @@ public class TravelAgent {
         PlanParseCoordinator.Result third = planParseCoordinator.parseWithOptionalRepair(minimal);
         if (!third.failed()) {
             ctx.planJson = third.effectivePlanJson();
+            recordPlanParseMeta(ctx, planDraftSource, third, "builtin_minimal");
             logPlanParseResolution(ctx.requestId, planDraftSource, third, "builtin_minimal");
             return;
         }
@@ -398,6 +403,47 @@ public class TravelAgent {
                 r.attempts(),
                 resolved,
                 requestId);
+    }
+
+    /**
+     * 与评测 {@code meta.plan_parse_outcome} / {@code meta.plan_parse_attempts} 同名字段，另含 {@code plan_draft_source}、
+     * {@code plan_parse_resolved}（与日志 {@code [plan]} {@code resolved=} 对齐），便于 harness 对账。
+     */
+    private static ServerSentEvent<String> buildPlanParseMetaEvent(MainAgentTurnContext ctx) {
+        String json = "{\"plan_parse_outcome\":\""
+                + jsonEscapeForSseJson(ctx.planParseOutcome)
+                + "\",\"plan_parse_attempts\":"
+                + ctx.planParseAttempts
+                + ",\"plan_draft_source\":\""
+                + jsonEscapeForSseJson(ctx.planDraftSource)
+                + "\",\"plan_parse_resolved\":\""
+                + jsonEscapeForSseJson(ctx.planParseResolved)
+                + "\",\"request_id\":\""
+                + jsonEscapeForSseJson(ctx.requestId)
+                + "\"}";
+        return ServerSentEvent.<String>builder()
+                .event("plan_parse")
+                .data(json)
+                .build();
+    }
+
+    private static String jsonEscapeForSseJson(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", " ");
+    }
+
+    private static void recordPlanParseMeta(
+            MainAgentTurnContext ctx,
+            String planDraftSource,
+            PlanParseCoordinator.Result r,
+            String resolved
+    ) {
+        ctx.planDraftSource = planDraftSource != null ? planDraftSource : "";
+        ctx.planParseOutcome = r.outcome() != null ? r.outcome() : "";
+        ctx.planParseAttempts = r.attempts();
+        ctx.planParseResolved = resolved != null ? resolved : "";
     }
 
     private static String jsonEscapeForNotes(String s) {
@@ -669,6 +715,12 @@ public class TravelAgent {
         /** PLAN 阶段产出的 JSON 文本（含 {@code steps} 数组），并入 WRITE 前最终 prompt。 */
         String planJson;
 
+        /** 与评测 {@code meta} 及 SSE {@code event:plan_parse} 对齐的附录 E 解析结论（在 {@link #enforceAppendixEPlanOrFallback} 末次成功路径写入）。 */
+        String planDraftSource;
+        String planParseOutcome;
+        int planParseAttempts;
+        String planParseResolved;
+
         /** 检索零命中且策略为 clarify 时跳过 LLM，仅下发固定澄清。 */
         boolean skipLlmForEmptyHits;
         String emptyHitsClarifyBody;
@@ -686,6 +738,10 @@ public class TravelAgent {
             this.toolPreface = "";
             this.skipLlmForEmptyHits = false;
             this.planJson = "";
+            this.planDraftSource = "";
+            this.planParseOutcome = "";
+            this.planParseAttempts = 0;
+            this.planParseResolved = "";
         }
     }
 
