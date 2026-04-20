@@ -31,6 +31,9 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
+import com.travel.ai.llm.LlmUsage;
+import com.travel.ai.llm.SpringAiUsageExtractor;
+
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.concurrent.TimeoutException;
@@ -38,6 +41,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
@@ -643,9 +647,17 @@ public class TravelAgent {
 
         log.info("[stage] WRITE start requestId={}", ctx.requestId);
 
-        Flux<String> flux = chatClient.prompt(ctx.finalPromptForLlm)
+        var streamSpec = chatClient.prompt(ctx.finalPromptForLlm)
                 .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, ctx.conversationId))
-                .stream()
+                .stream();
+
+        // B（真 token）：优先尝试从 Spring AI streaming 的响应元数据提取 provider usage。
+        // 若 provider usage 不可得，则输出字符级估算（不代表计费 token）。
+        AtomicLong streamedChars = new AtomicLong(0L);
+        long promptChars = ctx.finalPromptForLlm != null ? ctx.finalPromptForLlm.length() : 0L;
+        var providerUsage = new java.util.concurrent.atomic.AtomicReference<LlmUsage>();
+
+        Flux<String> flux = streamSpec
                 .content()
                 .timeout(llmTimeout)
                 .onErrorResume(throwable -> {
@@ -655,6 +667,9 @@ public class TravelAgent {
                 })
                 .doOnSubscribe(s -> llmStartNs.set(System.nanoTime()))
                 .doOnNext(chunk -> {
+                    if (chunk != null) {
+                        streamedChars.addAndGet(chunk.length());
+                    }
                     if (firstLlmToken.compareAndSet(true, false)) {
                         long ttftMs = (System.nanoTime() - llmStartNs.get()) / 1_000_000L;
                         log.info("[perf] llm_first_token_ms={} requestId={}", ttftMs, ctx.requestId);
@@ -665,10 +680,42 @@ public class TravelAgent {
                         long wallMs = (System.nanoTime() - llmStartNs.get()) / 1_000_000L;
                         log.info("[perf] llm_stream_wall_ms={} signal={} requestId={}", wallMs, signal, ctx.requestId);
                     }
+                    if (providerUsage.get() == null) {
+                        tryAttachProviderUsageFromStream(streamSpec).ifPresent(providerUsage::set);
+                    }
+                    LlmUsage u = providerUsage.get();
+                    if (u != null) {
+                        log.info("[usage] prompt_tokens={} completion_tokens={} total_tokens={} source={} requestId={}",
+                                u.promptTokens(), u.completionTokens(), u.totalTokens(), u.source(), ctx.requestId);
+                    } else {
+                        long totalChars = promptChars + streamedChars.get();
+                        long tokenEst = (long) Math.ceil(totalChars / 4.0);
+                        log.info("[usage] token_estimate={} prompt_chars={} streamed_chars={} requestId={}",
+                                tokenEst, promptChars, streamedChars.get(), ctx.requestId);
+                    }
                     logStageBoundary("WRITE", t0, ctx.requestId);
                 })
                 .share();
         return flux;
+    }
+
+    private Optional<LlmUsage> tryAttachProviderUsageFromStream(Object streamSpec) {
+        if (streamSpec == null) {
+            return Optional.empty();
+        }
+        try {
+            // 反射调用 chatResponse(): Publisher<?>
+            var m = streamSpec.getClass().getMethod("chatResponse");
+            Object pub = m.invoke(streamSpec);
+            if (!(pub instanceof org.reactivestreams.Publisher<?> publisher)) {
+                return Optional.empty();
+            }
+            // 通常 usage 在末包填充：取最后一个元素 best-effort
+            Object last = Flux.from(publisher).blockLast();
+            return SpringAiUsageExtractor.tryExtract(last);
+        } catch (Exception ignored) {
+            return Optional.empty();
+        }
     }
 
     /**
