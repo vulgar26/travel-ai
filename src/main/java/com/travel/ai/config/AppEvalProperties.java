@@ -28,6 +28,12 @@ public class AppEvalProperties {
      */
     private boolean llmRealEnabled = false;
 
+    /**
+     * 评测口 real LLM 调用的额外超时上限（毫秒）。\n
+     * 默认较小，避免“为了拿 usage”拖慢整段评测；设为 0 表示禁用额外上限（不推荐）。
+     */
+    private long llmRealTimeoutMs = 1200L;
+
     public String getGatewayKey() {
         return gatewayKey != null ? gatewayKey : "";
     }
@@ -66,5 +72,13 @@ public class AppEvalProperties {
 
     public void setLlmRealEnabled(boolean llmRealEnabled) {
         this.llmRealEnabled = llmRealEnabled;
+    }
+
+    public long getLlmRealTimeoutMs() {
+        return llmRealTimeoutMs;
+    }
+
+    public void setLlmRealTimeoutMs(long llmRealTimeoutMs) {
+        this.llmRealTimeoutMs = llmRealTimeoutMs;
     }
 }

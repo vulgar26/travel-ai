@@ -56,7 +56,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc(addFilters = false)
 @TestPropertySource(properties = {
         "app.eval.tool-timeout-ms=50",
-        "app.eval.llm-real-enabled=false"
+        "app.eval.llm-real-enabled=false",
+        "app.eval.llm-real-timeout-ms=200"
 })
 @EnableConfigurationProperties({AppAgentProperties.class, AppEvalProperties.class})
 @Import({
@@ -262,6 +263,20 @@ class EvalChatControllerTest {
                 .andExpect(jsonPath("$.meta.token_source").value("estimate"))
                 .andExpect(jsonPathAbsentOrNull("$.meta.prompt_tokens"))
                 .andExpect(jsonPathAbsentOrNull("$.meta.total_tokens"));
+    }
+
+    @Test
+    void llmModeReal_doesNotSetProviderUsageFieldsWhenDisabled() throws Exception {
+        // 即使有 evalUsageChatClient mock，server flag 关闭时也不应触发
+        String body = """
+                {"query":"probe","mode":"EVAL","llm_mode":"real"}
+                """;
+        mockMvc.perform(post("/api/v1/eval/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPathAbsentOrNull("$.meta.provider_usage_available"))
+                .andExpect(jsonPathAbsentOrNull("$.meta.provider_usage_failure_reason"));
     }
 
     /**

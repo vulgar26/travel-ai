@@ -41,6 +41,10 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static com.travel.ai.eval.EvalRagGateScenarios.Kind;
 
@@ -519,29 +523,50 @@ public class EvalChatService {
         }
         ChatClient client = evalUsageChatClient.getIfAvailable();
         if (client == null) {
+            meta.setProviderUsageAvailable(false);
+            meta.setProviderUsageFailureReason("no_client");
             return;
         }
+        long timeoutMs = Math.max(200L, appEvalProperties.getLlmRealTimeoutMs());
+        var es = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "eval-llm-usage-probe");
+            t.setDaemon(true);
+            return t;
+        });
         try {
-            // 触发一次真实调用（回答内容不作为评测输出）；usage 以 provider/SDK 暴露为准
-            Object callSpec = client.prompt()
-                    .user(request.getQuery() == null ? "" : request.getQuery())
-                    .call();
+            Future<Optional<LlmUsage>> f = es.submit(() -> {
+                // 触发一次真实调用（回答内容不作为评测输出）；usage 以 provider/SDK 暴露为准
+                Object callSpec = client.prompt()
+                        .user(request.getQuery() == null ? "" : request.getQuery())
+                        .call();
 
-            // 优先尝试从 callSpec 本体提取；若无则反射调用 chatResponse()
-            Optional<LlmUsage> u = SpringAiUsageExtractor.tryExtract(callSpec);
+                // 优先尝试从 callSpec 本体提取；若无则反射调用 chatResponse()
+                Optional<LlmUsage> u = SpringAiUsageExtractor.tryExtract(callSpec);
+                if (u.isEmpty()) {
+                    u = tryExtractFromCallSpecChatResponse(callSpec);
+                }
+                return u;
+            });
+            Optional<LlmUsage> u = f.get(timeoutMs, TimeUnit.MILLISECONDS);
             if (u.isEmpty()) {
-                u = tryExtractFromCallSpecChatResponse(callSpec);
-            }
-            if (u.isEmpty()) {
+                meta.setProviderUsageAvailable(false);
+                meta.setProviderUsageFailureReason("no_usage");
                 return;
             }
             LlmUsage usage = u.get();
+            meta.setProviderUsageAvailable(true);
             meta.setTokenSource("provider");
             meta.setPromptTokens(usage.promptTokens());
             meta.setCompletionTokens(usage.completionTokens());
             meta.setTotalTokens(usage.totalTokens());
-        } catch (Exception ignored) {
-            // best-effort：真实调用不可用/超时/无 usage 时不影响主流程
+        } catch (TimeoutException e) {
+            meta.setProviderUsageAvailable(false);
+            meta.setProviderUsageFailureReason("timeout");
+        } catch (Exception e) {
+            meta.setProviderUsageAvailable(false);
+            meta.setProviderUsageFailureReason("error");
+        } finally {
+            es.shutdownNow();
         }
     }
 

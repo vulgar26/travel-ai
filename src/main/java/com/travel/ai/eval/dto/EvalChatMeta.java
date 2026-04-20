@@ -108,6 +108,15 @@ public class EvalChatMeta {
     private Integer totalTokens;
 
     /**
+     * provider usage 是否成功获取（仅在请求 {@code llm_mode=real} 且服务端允许时才可能出现）。\n
+     * 用于区分“走了 real 但 SDK 未暴露 usage / 超时 / 失败”等情况。
+     */
+    private Boolean providerUsageAvailable;
+
+    /** provider usage 获取失败的原因标签（不含敏感信息），如 {@code disabled|timeout|no_usage|error}。 */
+    private String providerUsageFailureReason;
+
+    /**
      * 当 {@code latency_ms}（Controller 写入）大于 {@link #agentTotalTimeoutMs} 时为 {@code true}；
      * 未写入总超时或未比较时为 {@code null}。
      */
@@ -394,6 +403,22 @@ public class EvalChatMeta {
 
     public void setTotalTokens(Integer totalTokens) {
         this.totalTokens = totalTokens;
+    }
+
+    public Boolean getProviderUsageAvailable() {
+        return providerUsageAvailable;
+    }
+
+    public void setProviderUsageAvailable(Boolean providerUsageAvailable) {
+        this.providerUsageAvailable = providerUsageAvailable;
+    }
+
+    public String getProviderUsageFailureReason() {
+        return providerUsageFailureReason;
+    }
+
+    public void setProviderUsageFailureReason(String providerUsageFailureReason) {
+        this.providerUsageFailureReason = providerUsageFailureReason;
     }
 
     public Boolean getAgentLatencyBudgetExceeded() {

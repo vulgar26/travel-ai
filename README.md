@@ -159,6 +159,7 @@ npm run dev
 | `app.eval.stub-work-sleep-ms` | **仅测试**：阻塞 stub 主路径以验证整段 `total-timeout`；生产保持 **0** |
 | `app.eval.reflection-meta-enabled` | 是否在 `meta` 中写入 `recovery_action` / 场景下的 `self_check`（评测 stub）；`false` 时完全不写字段 |
 | `app.eval.llm-real-enabled` | 是否允许评测口在请求体 `{"llm_mode":"real"}` 时触发一次真实 LLM 调用以获取 provider usage（默认 **false**，避免 CI/本地误触发外网与成本） |
+| `app.eval.llm-real-timeout-ms` | 评测口 real LLM “usage 探针” 的额外超时上限（毫秒）；避免为了拿 usage 拖慢整段评测（默认 1200） |
 
 评测请求体可选 **`eval_reflection_scenario`**：`self_check_ok` → `meta.recovery_action=continue` 且带 `meta.self_check`；`recovery_suggest_clarify` → `meta.recovery_action=suggest_clarify`。默认成功路径为 `recovery_action=none`（与 `replan_count=0` 正交，无二次 plan LLM）。
 
