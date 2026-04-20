@@ -54,7 +54,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @WebMvcTest(controllers = EvalChatController.class)
 @AutoConfigureMockMvc(addFilters = false)
-@TestPropertySource(properties = "app.eval.tool-timeout-ms=50")
+@TestPropertySource(properties = {
+        "app.eval.tool-timeout-ms=50",
+        "app.eval.llm-real-enabled=false"
+})
 @EnableConfigurationProperties({AppAgentProperties.class, AppEvalProperties.class})
 @Import({
         EvalChatService.class,
@@ -88,6 +91,9 @@ class EvalChatControllerTest {
 
     @MockBean
     private QueryRewriter queryRewriter;
+
+    @MockBean(name = "evalUsageChatClient")
+    private org.springframework.ai.chat.client.ChatClient evalUsageChatClient;
 
     @BeforeEach
     void resetRepairPort() {
@@ -242,6 +248,20 @@ class EvalChatControllerTest {
                 .andExpect(jsonPath("$.meta.context_budget_sources_snippet_max_chars").value(300))
                 .andExpect(jsonPath("$.meta.context_budget_chars_per_token_estimate").value(4))
                 .andExpect(jsonPath("$.meta.token_source").value("estimate"));
+    }
+
+    @Test
+    void llmModeReal_isIgnoredWhenServerFlagDisabled() throws Exception {
+        String body = """
+                {"query":"real mode requested but disabled","mode":"EVAL","llm_mode":"real"}
+                """;
+        mockMvc.perform(post("/api/v1/eval/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.meta.token_source").value("estimate"))
+                .andExpect(jsonPathAbsentOrNull("$.meta.prompt_tokens"))
+                .andExpect(jsonPathAbsentOrNull("$.meta.total_tokens"));
     }
 
     /**

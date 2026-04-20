@@ -13,6 +13,8 @@ import com.travel.ai.eval.dto.EvalStreamingCapability;
 import com.travel.ai.eval.dto.EvalToolsCapability;
 import com.travel.ai.config.AppAgentProperties;
 import com.travel.ai.config.AppEvalProperties;
+import com.travel.ai.llm.LlmUsage;
+import com.travel.ai.llm.SpringAiUsageExtractor;
 import com.travel.ai.plan.PlanParseCoordinator;
 import com.travel.ai.plan.PlanParseException;
 import com.travel.ai.plan.PlanParser;
@@ -23,6 +25,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.ai.document.Document;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.filter.Filter;
@@ -67,6 +70,7 @@ public class EvalChatService {
     private final EvalToolStageRunner evalToolStageRunner;
     private final ObjectProvider<com.travel.ai.agent.QueryRewriter> queryRewriter;
     private final ObjectProvider<VectorStore> vectorStore;
+    private final ObjectProvider<ChatClient> evalUsageChatClient;
     private final AppAgentProperties appAgentProperties;
     private final AppEvalProperties appEvalProperties;
 
@@ -77,7 +81,8 @@ public class EvalChatService {
             ObjectProvider<com.travel.ai.agent.QueryRewriter> queryRewriter,
             ObjectProvider<VectorStore> vectorStore,
             AppAgentProperties appAgentProperties,
-            AppEvalProperties appEvalProperties
+            AppEvalProperties appEvalProperties,
+            @org.springframework.beans.factory.annotation.Qualifier("evalUsageChatClient") ObjectProvider<ChatClient> evalUsageChatClient
     ) {
         this.planParseCoordinator = planParseCoordinator;
         this.planParser = planParser;
@@ -86,6 +91,7 @@ public class EvalChatService {
         this.vectorStore = vectorStore;
         this.appAgentProperties = appAgentProperties;
         this.appEvalProperties = appEvalProperties;
+        this.evalUsageChatClient = evalUsageChatClient;
     }
 
     /**
@@ -496,9 +502,60 @@ public class EvalChatService {
     ) {
         stampContextTruncationOnMeta(response.getMeta(), evidence);
         stampContextSizeEstimatesOnMeta(response.getMeta(), request, evidence);
+        maybeAttachProviderTokenUsage(response.getMeta(), request);
         EvalReflectionSupport.apply(response, request, appEvalProperties.isReflectionMetaEnabled());
         attachRetrievalMembershipMeta(response.getMeta(), response, membershipCtx, evidence);
         return response;
+    }
+
+    private void maybeAttachProviderTokenUsage(EvalChatMeta meta, EvalChatRequest request) {
+        if (meta == null || request == null) {
+            return;
+        }
+        String mode = request.getLlmMode();
+        boolean wantReal = mode != null && mode.trim().equalsIgnoreCase("real");
+        if (!wantReal || !appEvalProperties.isLlmRealEnabled()) {
+            return;
+        }
+        ChatClient client = evalUsageChatClient.getIfAvailable();
+        if (client == null) {
+            return;
+        }
+        try {
+            // 触发一次真实调用（回答内容不作为评测输出）；usage 以 provider/SDK 暴露为准
+            Object callSpec = client.prompt()
+                    .user(request.getQuery() == null ? "" : request.getQuery())
+                    .call();
+
+            // 优先尝试从 callSpec 本体提取；若无则反射调用 chatResponse()
+            Optional<LlmUsage> u = SpringAiUsageExtractor.tryExtract(callSpec);
+            if (u.isEmpty()) {
+                u = tryExtractFromCallSpecChatResponse(callSpec);
+            }
+            if (u.isEmpty()) {
+                return;
+            }
+            LlmUsage usage = u.get();
+            meta.setTokenSource("provider");
+            meta.setPromptTokens(usage.promptTokens());
+            meta.setCompletionTokens(usage.completionTokens());
+            meta.setTotalTokens(usage.totalTokens());
+        } catch (Exception ignored) {
+            // best-effort：真实调用不可用/超时/无 usage 时不影响主流程
+        }
+    }
+
+    private static Optional<LlmUsage> tryExtractFromCallSpecChatResponse(Object callSpec) {
+        if (callSpec == null) {
+            return Optional.empty();
+        }
+        try {
+            var m = callSpec.getClass().getMethod("chatResponse");
+            Object resp = m.invoke(callSpec);
+            return SpringAiUsageExtractor.tryExtract(resp);
+        } catch (Exception ignored) {
+            return Optional.empty();
+        }
     }
 
     private static void stampContextTruncationOnMeta(EvalChatMeta meta, Evidence evidence) {

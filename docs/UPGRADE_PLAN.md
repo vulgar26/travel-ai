@@ -337,6 +337,7 @@
 - [x] P1-0 harness：评测口 `meta.context_truncated` + `context_truncation_reasons[]` 已落地（见同上；单测覆盖 `sources_snippet_truncated`）  
 - [x] P1-0 harness：评测口 `meta.config_snapshot_hash`（含 `alg/scope`）已落地（用于 A/B 对账是否“只改了一个开关”）  
 - [x] P1-0 harness：评测口补充上下文规模近似（`meta.context_char_count` / `meta.context_token_estimate`）用于趋势与异常检测（非真 token）  
+- [x] P1-0 harness：组合模式已打通：默认 `token_source=estimate`；可选 `llm_mode=real` + `app.eval.llm-real-enabled=true` 触发 provider usage（写入 `prompt_tokens/completion_tokens/total_tokens`）  
 - [x] `QueryRewriter` 畸形输出有兜底；检索结果按 id 显式去重（`TravelAgent#mergeAndDedupeDocuments`）  
 - [x] `KnowledgeServiceImplTest` 在 `@BeforeEach` 绑定 `SecurityContext`（等价于已登录 `demo`，见 P4-1）  
 - [x] 至少一条 JWT 链路与 eval 网关链路的集成测试（`TravelAiApplicationIntegrationTest`，含未授权访问 JSON 断言）  
