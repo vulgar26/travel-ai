@@ -421,9 +421,13 @@ public class EvalChatService {
             if (reuse.reused() != null) {
                 evidence = reuse.reused();
                 meta.setCheckpointEvidenceReused(true);
+                appendPolicyEvent(meta, "eval_checkpoint", PolicyStageAnchor.POST_PLAN.wireValue(),
+                        "answer", "reuse_hit:evidence", null);
             } else {
                 if (reuse.missReason() != null) {
                     meta.setCheckpointEvidenceReuseMissReason(reuse.missReason());
+                    appendPolicyEvent(meta, "eval_checkpoint", PolicyStageAnchor.POST_PLAN.wireValue(),
+                            "answer", "reuse_miss:evidence:" + reuse.missReason(), null);
                 }
                 evidence = retrieveEvidence(request.getQuery(), mode, xEvalMembershipTopN);
             }
@@ -551,10 +555,14 @@ public class EvalChatService {
             if (reuse.reused() != null) {
                 toolSlot.set(reuse.reused());
                 meta.setCheckpointToolReused(true);
+                appendPolicyEvent(meta, "eval_checkpoint", PolicyStageAnchor.TOOL.wireValue(),
+                        "answer", "reuse_hit:tool", null);
                 return;
             }
             if (reuse.missReason() != null) {
                 meta.setCheckpointToolReuseMissReason(reuse.missReason());
+                appendPolicyEvent(meta, "eval_checkpoint", PolicyStageAnchor.TOOL.wireValue(),
+                        "answer", "reuse_miss:tool:" + reuse.missReason(), null);
             }
             EvalToolStageRunner.EvalToolInvocationResult r = evalToolStageRunner.invoke(request);
             if (r != null) {
