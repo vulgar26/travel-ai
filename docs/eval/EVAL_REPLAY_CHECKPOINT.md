@@ -46,6 +46,7 @@
 4. **证据复用（已落地）**：同一 `conversation_id` 下再次请求时，若 `sha256(query)` 与断点行 `detail.query_sha256` 一致，且 `detail.evidence_sources/hits` 存在，则直接复用，不再调用向量检索。  
 5. **工具复用（已落地）**：同一 `conversation_id` 下再次请求时，若 `sha256(query)` 匹配且 `eval_tool_scenario` 相同，且 `detail.tool_*` 快照齐全，则直接复用 TOOL 结果，不再重复执行工具阶段。  
    - 可观测：命中复用时，响应 `meta.checkpoint_evidence_reused=true` / `meta.checkpoint_tool_reused=true`（只在命中时出现）。
+   - 未命中可观测：当尝试复用但失败时返回 `meta.checkpoint_*_reuse_miss_reason`（例如 `query_hash_mismatch` / `scenario_mismatch` / `snapshot_missing`）。
 6. **主线 SSE**：若产品需要「刷新后续航」，再评估是否共用本表或拆 `agent_conversation_checkpoint`。
 
 ---

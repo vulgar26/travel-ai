@@ -258,6 +258,18 @@ public class EvalChatMeta {
      */
     private Boolean checkpointToolReused;
 
+    /**
+     * 断点复用未命中原因（证据）：仅当<strong>尝试</strong>从 checkpoint 复用证据但失败时返回，例如：
+     * {@code no_checkpoint|checkpoint_missing_query_hash|query_hash_mismatch|snapshot_missing}。
+     */
+    private String checkpointEvidenceReuseMissReason;
+
+    /**
+     * 断点复用未命中原因（工具）：仅当<strong>尝试</strong>从 checkpoint 复用 TOOL 结果但失败时返回，例如：
+     * {@code no_checkpoint|checkpoint_missing_query_hash|query_hash_mismatch|scenario_mismatch|snapshot_missing}。
+     */
+    private String checkpointToolReuseMissReason;
+
     public EvalChatMeta() {
     }
 
@@ -688,5 +700,21 @@ public class EvalChatMeta {
 
     public void setCheckpointToolReused(Boolean checkpointToolReused) {
         this.checkpointToolReused = checkpointToolReused;
+    }
+
+    public String getCheckpointEvidenceReuseMissReason() {
+        return checkpointEvidenceReuseMissReason;
+    }
+
+    public void setCheckpointEvidenceReuseMissReason(String checkpointEvidenceReuseMissReason) {
+        this.checkpointEvidenceReuseMissReason = checkpointEvidenceReuseMissReason;
+    }
+
+    public String getCheckpointToolReuseMissReason() {
+        return checkpointToolReuseMissReason;
+    }
+
+    public void setCheckpointToolReuseMissReason(String checkpointToolReuseMissReason) {
+        this.checkpointToolReuseMissReason = checkpointToolReuseMissReason;
     }
 }

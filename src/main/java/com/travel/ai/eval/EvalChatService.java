@@ -417,11 +417,14 @@ public class EvalChatService {
         // checkpoint 命中且 detail 中有同 query 的证据快照时，直接复用（避免重复向量检索）。
         Evidence evidence = emptyEvidence();
         if (physical.runRetrieve()) {
-            Evidence reused = tryReuseEvidenceFromCheckpoint(matchedCheckpointRow, request);
-            if (reused != null) {
-                evidence = reused;
+            ReuseAttempt<Evidence> reuse = tryReuseEvidenceFromCheckpoint(matchedCheckpointRow, request);
+            if (reuse.reused() != null) {
+                evidence = reuse.reused();
                 meta.setCheckpointEvidenceReused(true);
             } else {
+                if (reuse.missReason() != null) {
+                    meta.setCheckpointEvidenceReuseMissReason(reuse.missReason());
+                }
                 evidence = retrieveEvidence(request.getQuery(), mode, xEvalMembershipTopN);
             }
         }
@@ -544,11 +547,14 @@ public class EvalChatService {
             if (toolSlot.get() != null) {
                 return;
             }
-            EvalToolStageRunner.EvalToolInvocationResult reused = tryReuseToolFromCheckpoint(matchedCheckpointRow, request);
-            if (reused != null) {
-                toolSlot.set(reused);
+            ReuseAttempt<EvalToolStageRunner.EvalToolInvocationResult> reuse = tryReuseToolFromCheckpoint(matchedCheckpointRow, request);
+            if (reuse.reused() != null) {
+                toolSlot.set(reuse.reused());
                 meta.setCheckpointToolReused(true);
                 return;
+            }
+            if (reuse.missReason() != null) {
+                meta.setCheckpointToolReuseMissReason(reuse.missReason());
             }
             EvalToolStageRunner.EvalToolInvocationResult r = evalToolStageRunner.invoke(request);
             if (r != null) {
@@ -990,34 +996,37 @@ public class EvalChatService {
     ) {
     }
 
+    private record ReuseAttempt<T>(T reused, String missReason) {
+    }
+
     private static Evidence emptyEvidence() {
         return new Evidence(List.of(), List.of(), 0, 0, false, false, false);
     }
 
     @SuppressWarnings("unchecked")
-    private Evidence tryReuseEvidenceFromCheckpoint(EvalCheckpointRow row, EvalChatRequest request) {
+    private ReuseAttempt<Evidence> tryReuseEvidenceFromCheckpoint(EvalCheckpointRow row, EvalChatRequest request) {
         if (row == null || request == null) {
-            return null;
+            return new ReuseAttempt<>(null, "no_checkpoint");
         }
         if (request.getQuery() == null || request.getQuery().isBlank()) {
-            return null;
+            return new ReuseAttempt<>(null, null);
         }
         Map<String, Object> d = row.detail();
         if (d == null || d.isEmpty()) {
-            return null;
+            return new ReuseAttempt<>(null, "snapshot_missing");
         }
         Object qh = d.get("query_sha256");
         if (!(qh instanceof String storedHash) || storedHash.isBlank()) {
-            return null;
+            return new ReuseAttempt<>(null, "checkpoint_missing_query_hash");
         }
         String now = sha256Hex(request.getQuery().trim());
         if (!storedHash.trim().equalsIgnoreCase(now)) {
-            return null;
+            return new ReuseAttempt<>(null, "query_hash_mismatch");
         }
         Object hitsRaw = d.get("evidence_retrieval_hits");
         Object sourcesRaw = d.get("evidence_sources");
         if (!(hitsRaw instanceof List<?> hitsList) || !(sourcesRaw instanceof List<?> sourcesList)) {
-            return null;
+            return new ReuseAttempt<>(null, "snapshot_missing");
         }
         List<EvalChatRetrievalHit> hits = new ArrayList<>(hitsList.size());
         for (Object o : hitsList) {
@@ -1052,7 +1061,7 @@ public class EvalChatService {
         boolean snippetTruncated = boolFromDetail(d.get("sources_snippet_truncated"));
         boolean capped = boolFromDetail(d.get("retrieval_candidates_capped"));
         boolean queryLineTruncated = boolFromDetail(d.get("retrieval_query_line_truncated"));
-        return new Evidence(
+        return new ReuseAttempt<>(new Evidence(
                 Collections.unmodifiableList(hits),
                 Collections.unmodifiableList(sources),
                 candidateTotal,
@@ -1060,7 +1069,7 @@ public class EvalChatService {
                 snippetTruncated,
                 capped,
                 queryLineTruncated
-        );
+        ), null);
     }
 
     private static int intFromDetail(Object o) {
@@ -1090,41 +1099,41 @@ public class EvalChatService {
         return false;
     }
 
-    private EvalToolStageRunner.EvalToolInvocationResult tryReuseToolFromCheckpoint(EvalCheckpointRow row, EvalChatRequest request) {
+    private ReuseAttempt<EvalToolStageRunner.EvalToolInvocationResult> tryReuseToolFromCheckpoint(EvalCheckpointRow row, EvalChatRequest request) {
         if (row == null || request == null) {
-            return null;
+            return new ReuseAttempt<>(null, "no_checkpoint");
         }
         if (request.getQuery() == null || request.getQuery().isBlank()) {
-            return null;
+            return new ReuseAttempt<>(null, null);
         }
         String scenarioNow = request.getEvalToolScenario();
         if (scenarioNow == null || scenarioNow.isBlank()) {
-            return null;
+            return new ReuseAttempt<>(null, null);
         }
         Map<String, Object> d = row.detail();
         if (d == null || d.isEmpty()) {
-            return null;
+            return new ReuseAttempt<>(null, "snapshot_missing");
         }
         Object qh = d.get("query_sha256");
         if (!(qh instanceof String storedHash) || storedHash.isBlank()) {
-            return null;
+            return new ReuseAttempt<>(null, "checkpoint_missing_query_hash");
         }
         String now = sha256Hex(request.getQuery().trim());
         if (!storedHash.trim().equalsIgnoreCase(now)) {
-            return null;
+            return new ReuseAttempt<>(null, "query_hash_mismatch");
         }
         Object sc = d.get("eval_tool_scenario");
         if (!(sc instanceof String storedScenario) || storedScenario.isBlank()) {
-            return null;
+            return new ReuseAttempt<>(null, "snapshot_missing");
         }
         if (!storedScenario.trim().equalsIgnoreCase(scenarioNow.trim())) {
-            return null;
+            return new ReuseAttempt<>(null, "scenario_mismatch");
         }
         boolean used = boolFromDetail(d.get("tool_used"));
         Object nameRaw = d.get("tool_name");
         Object outcomeRaw = d.get("tool_outcome");
         if (nameRaw == null || outcomeRaw == null) {
-            return null;
+            return new ReuseAttempt<>(null, "snapshot_missing");
         }
         String name = String.valueOf(nameRaw);
         String outcome = String.valueOf(outcomeRaw);
@@ -1143,7 +1152,7 @@ public class EvalChatService {
         Boolean cb = boolFromDetail(d.get("tool_disabled_by_circuit_breaker")) ? Boolean.TRUE : null;
         Boolean rl = boolFromDetail(d.get("tool_rate_limited")) ? Boolean.TRUE : null;
         Boolean tr = boolFromDetail(d.get("tool_output_truncated")) ? Boolean.TRUE : null;
-        return new EvalToolStageRunner.EvalToolInvocationResult(used, name, outcome, kind, latencyMs, cb, rl, tr);
+        return new ReuseAttempt<>(new EvalToolStageRunner.EvalToolInvocationResult(used, name, outcome, kind, latencyMs, cb, rl, tr), null);
     }
 
     private static EvalToolStageRunner.EvalToolInvocationResult.Kind kindFromOutcome(String outcome) {
