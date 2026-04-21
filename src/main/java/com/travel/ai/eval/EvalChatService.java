@@ -418,7 +418,12 @@ public class EvalChatService {
         Evidence evidence = emptyEvidence();
         if (physical.runRetrieve()) {
             Evidence reused = tryReuseEvidenceFromCheckpoint(matchedCheckpointRow, request);
-            evidence = reused != null ? reused : retrieveEvidence(request.getQuery(), mode, xEvalMembershipTopN);
+            if (reused != null) {
+                evidence = reused;
+                meta.setCheckpointEvidenceReused(true);
+            } else {
+                evidence = retrieveEvidence(request.getQuery(), mode, xEvalMembershipTopN);
+            }
         }
         if (!evidence.retrievalHits.isEmpty()) {
             response.setRetrievalHits(evidence.retrievalHits);
@@ -542,6 +547,7 @@ public class EvalChatService {
             EvalToolStageRunner.EvalToolInvocationResult reused = tryReuseToolFromCheckpoint(matchedCheckpointRow, request);
             if (reused != null) {
                 toolSlot.set(reused);
+                meta.setCheckpointToolReused(true);
                 return;
             }
             EvalToolStageRunner.EvalToolInvocationResult r = evalToolStageRunner.invoke(request);

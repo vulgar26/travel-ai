@@ -248,6 +248,16 @@ public class EvalChatMeta {
      */
     private String evalCheckpointOutcome;
 
+    /**
+     * 断点复用命中：证据（retrieval_hits/sources）是否直接从 checkpoint 复用；仅命中时返回 true。
+     */
+    private Boolean checkpointEvidenceReused;
+
+    /**
+     * 断点复用命中：TOOL 结果是否直接从 checkpoint 复用；仅命中时返回 true。
+     */
+    private Boolean checkpointToolReused;
+
     public EvalChatMeta() {
     }
 
@@ -662,5 +672,21 @@ public class EvalChatMeta {
 
     public void setEvalCheckpointOutcome(String evalCheckpointOutcome) {
         this.evalCheckpointOutcome = evalCheckpointOutcome;
+    }
+
+    public Boolean getCheckpointEvidenceReused() {
+        return checkpointEvidenceReused;
+    }
+
+    public void setCheckpointEvidenceReused(Boolean checkpointEvidenceReused) {
+        this.checkpointEvidenceReused = checkpointEvidenceReused;
+    }
+
+    public Boolean getCheckpointToolReused() {
+        return checkpointToolReused;
+    }
+
+    public void setCheckpointToolReused(Boolean checkpointToolReused) {
+        this.checkpointToolReused = checkpointToolReused;
     }
 }
