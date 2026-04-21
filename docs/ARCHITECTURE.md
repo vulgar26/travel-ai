@@ -68,8 +68,7 @@
 
 - `RateLimitingFilter` 是一个全局 `OncePerRequestFilter`，在 `JwtAuthFilter` 之后执行：
   - 针对 `/travel/chat/**` 使用 Bucket4j + Caffeine 为每个用户/IP 创建独立 token bucket。
-  - 默认策略：每用户/IP 每分钟 5 次请求（可配置），超额时立即返回 HTTP 429，Body 为统一的 JSON：
-    - `{"code":"RATE_LIMITED","message":"请求过于频繁，请稍后再试"}`
+  - 默认策略：每用户/IP 每分钟 5 次请求（可配置），超额时立即返回 HTTP 429，Body 与鉴权/REST 同形：`{"error":"RATE_LIMITED","message":"请求过于频繁，请稍后再试"}`（`JsonApiErrorSupport`）
   - 登录用户用 `user:{username}` 作为限流 key，匿名用户退化为按 IP 限流。
 
 ### 5.3 超时与降级

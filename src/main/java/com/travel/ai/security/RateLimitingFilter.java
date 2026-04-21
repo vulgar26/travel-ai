@@ -19,6 +19,8 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+import com.travel.ai.web.JsonApiErrorSupport;
+
 import java.io.IOException;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
@@ -136,11 +138,12 @@ public class RateLimitingFilter extends OncePerRequestFilter {
     }
 
     private void write429(HttpServletResponse response) throws IOException {
-        response.setStatus(429);
-        response.setContentType("application/json;charset=UTF-8");
-        response.getWriter().write("""
-                {"code":"RATE_LIMITED","message":"请求过于频繁，请稍后再试"}
-                """);
+        // 与 Security 401/403、RestApiExceptionHandler 4xx 同形：{"error","message"}（工程债收口）
+        JsonApiErrorSupport.write(
+                response,
+                HttpServletResponse.SC_TOO_MANY_REQUESTS,
+                "RATE_LIMITED",
+                "请求过于频繁，请稍后再试");
     }
 
     /**

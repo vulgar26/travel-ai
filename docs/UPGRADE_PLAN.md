@@ -23,7 +23,7 @@
 
 ### 工程债（REST / 鉴权错误体）— 收口说明
 
-- **目标**：受保护业务接口在 **401 / 403** 及常见 **4xx** 上返回 **`application/json`**，形体与评测网关、知识上传校验一致：`{"error","message"}`。（**429** 仍沿用 `RateLimitingFilter` 的 `code` + `message`，后续可选与 `error` 字段对齐。）
+- **目标**：受保护业务接口在 **401 / 403**、常见 **4xx** 及 **429（限流）** 上返回 **`application/json`**，形体与评测网关、知识上传校验一致：`{"error","message"}`（**429** 由 `RateLimitingFilter` 经 `JsonApiErrorSupport` 写出，`error=RATE_LIMITED`）。
 - **实现**：`SecurityConfig` 注册 JSON `AuthenticationEntryPoint` / `AccessDeniedHandler`；`JsonApiErrorSupport` 供 `EvalGatewayAuthFilter` 复用；`RestApiExceptionHandler` 处理 `ResponseStatusException`、`HttpMessageNotReadableException`、`MissingServletRequestParameterException`。集成测试断言未带 JWT 访问 `/travel/chat/...` 时 **Content-Type** 为 JSON 且含 `UNAUTHORIZED`。
 
 ---
@@ -93,7 +93,7 @@
 
 1. 扩展 `RateLimitingFilter`（或新增 `LoginRateLimitingFilter`）对 `POST /auth/login` 按 **IP**（及可选按 username hash）限流，策略应 **严于** 聊天（例如每分钟 10～20 次/ IP，可按产品调整）。
 2. 限流参数同样 **配置化**（`app.rate-limit.login.*`）。
-3. 返回体与现有 429 JSON 风格统一（`code` + `message`）。
+3. 返回体与其它 JSON 错误体一致（`error` + `message`；限流码 `RATE_LIMITED`）。
 
 **涉及文件**：`RateLimitingFilter.java` 或新 Filter、`SecurityConfig.java`（Filter 顺序）、`application.yml`、文档
 

@@ -2,7 +2,7 @@
 
 **维护约定**：以 `src/main/java` 与 `application*.yml` 为真源；本文件随合入更新。**外部计划**路径：`D:\Projects\Vagent\plans\travel-ai-upgrade.md`（不在本仓库内，此处仅摘要对照）。
 
-**更新日期**：2026-04-21（§4：`POST /travel/chat` + `max-query-chars`；`docs/eval.md` 链至 **`LLM_REAL_USAGE_RUNBOOK`**；含历史 §4/§5 条目）
+**更新日期**：2026-04-21（§4：`POST /travel/chat` + `max-query-chars`；`docs/eval.md` 链至 **`LLM_REAL_USAGE_RUNBOOK`**；§5：429 限流体 `error`+`message`；含历史 §4/§5 条目）
 
 ---
 
@@ -60,7 +60,7 @@
 - **长期记忆** `user_profile` / 删除权 / 从对话抽取（默认待确认）/ 删画像时可选清 Redis：**已做**。**未做**：独立「按字段」合规审计流；**短期记忆保留期**仍见 `RedisChatMemory`（天级 TTL + 条数上限），与画像表正交。
 - **按 plan `steps` 物理跳过阶段**：**已做**（`PlanPhysicalStagePolicy` + 主线 `TravelAgent` + 评测 `EvalChatService` / `EvalLinearAgentPipeline`；默认合法 plan 仍含全阶段以保持既有 eval 契约）。  
 - **`conversationId` 归口**：已实现 `POST /travel/conversations` 签发 + Redis 登记；**推荐** `POST /travel/chat/{id}`（JSON body）拉 SSE；`GET /travel/chat/{id}?query=` 仍兼容（`Deprecation`）；路径校验；`app.conversation.max-query-chars`；`app.conversation.require-registration` 为 `true` 时强校验归属（默认 `false` 兼容演示/测试，见 `application.yml`）。
-- **`attack/*` 等题库与文档对齐**：实现见 `EvalChatSafetyGate` / `EvalQuerySafetyPolicy` / `EvalBehaviorPolicy`；**可导入的示例与建议 `tags`** 已汇总于 **`docs/eval.md`** §「评测口：对抗与安全…」（批量导入 eval 平台与 CI 全量仍为后续工作）。
+- **`attack/*` 等题库与文档对齐**：实现见 `EvalChatSafetyGate` / `EvalQuerySafetyPolicy` / `EvalBehaviorPolicy`；**可导入的示例与建议 `tags`** 已汇总于 **`docs/eval.md`** §「评测口：对抗与安全…」。**默认 CI** 已跑离线/容器内契约（见 [**`docs/eval/CI_AND_REMOTE_EVAL.md`**](eval/CI_AND_REMOTE_EVAL.md)）；**对公网部署 target 的全量 dataset 回归**仍由 Vagent/staging 流程承担，未并入本仓 `ci.yml`。
 
 ---
 
@@ -77,7 +77,7 @@
 **当前推荐执行顺序**：
 
 1. ~~**长期记忆与隐私治理**（`user_profile`、删除权、可选 prompt 注入）~~：**已收口（基线）**；后续可选：自动摘要写入（须用户确认）、更细 retention。  
-2. ~~**工程债（错误体）**~~：**已收口（鉴权 + 常见 REST）**：除 `/knowledge/upload` 与 `KnowledgeControllerAdvice` 外，`SecurityConfig` 的 401/403 与 `RestApiExceptionHandler`（`ResponseStatusException` 等）均为 JSON；评测网关错误与上述同形。**可选后续**：将 **429** 限流体从 `code` 对齐为 `error` 字段，或统一为同一 DTO。  
+2. ~~**工程债（错误体）**~~：**已收口（鉴权 + 常见 REST + 429）**：除 `/knowledge/upload` 与 `KnowledgeControllerAdvice` 外，`SecurityConfig` 的 401/403 与 `RestApiExceptionHandler`（`ResponseStatusException` 等）均为 JSON；**`RateLimitingFilter` 的 429** 亦经 **`JsonApiErrorSupport`** 输出 `error`+`message`（`error=RATE_LIMITED`）；评测网关错误与上述同形。  
 3. **P1-0 harness 分步**：`context_truncated`、`config_snapshot_hash`、字符级 **`context_*`/`token_source=estimate`**、可选 **provider usage**（**`llm_mode=real`** + **`eval_tags`** 门禁 + **`app.eval.llm-real-*`**）等已在代码落地；**残余缺口与后续大项**仍以 **`docs/eval/P1_HARNESS_GAP.md`**、**[`docs/eval/LLM_REAL_USAGE_RUNBOOK.md`](eval/LLM_REAL_USAGE_RUNBOOK.md)** 为索引。
 
 **维护提醒**：若调整 SSE 线性阶段顺序，须同步 `EvalLinearAgentPipeline`、`EvalChatService` 中手工 `stage_order` 与相关契约测试。  
