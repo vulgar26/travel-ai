@@ -72,6 +72,12 @@ public class EvalChatMeta {
     private String configSnapshotHashScope;
 
     /**
+     * 与本机配置白名单快照绑定的稳定引用 id（与 {@link #configSnapshotHash} 一一对应）。\n
+     * 形如 {@code travel-ai:config-snapshot/v1/sha256/<64位小写hex>}，便于报表 join 或后续外存对象主键；无 hash 时不出现。
+     */
+    private String configSnapshotId;
+
+    /**
      * 可选：与 {@link #configSnapshotHash} 同源的白名单配置键值（值均为字符串），便于人机可读对账。\n
      * 受 {@code app.eval.config-snapshot-meta-enabled} 控制；默认不出现。
      */
@@ -338,6 +344,14 @@ public class EvalChatMeta {
 
     public void setConfigSnapshotHashScope(String configSnapshotHashScope) {
         this.configSnapshotHashScope = configSnapshotHashScope;
+    }
+
+    public String getConfigSnapshotId() {
+        return configSnapshotId;
+    }
+
+    public void setConfigSnapshotId(String configSnapshotId) {
+        this.configSnapshotId = configSnapshotId;
     }
 
     public Map<String, String> getConfigSnapshot() {

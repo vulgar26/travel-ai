@@ -39,6 +39,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.matchesPattern;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -226,6 +227,8 @@ class EvalChatControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.meta.config_snapshot_hash").isString())
                 .andExpect(jsonPath("$.meta.config_snapshot_hash").isNotEmpty())
+                .andExpect(jsonPath("$.meta.config_snapshot_id", matchesPattern(
+                        "travel-ai:config-snapshot/v1/sha256/[a-f0-9]{64}")))
                 .andExpect(jsonPath("$.meta.config_snapshot_hash_alg").value("SHA-256"))
                 .andExpect(jsonPath("$.meta.config_snapshot_hash_scope").value("app.agent.* + app.eval.* (safe whitelist)"));
     }

@@ -24,6 +24,7 @@ import java.util.List;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.hamcrest.Matchers.matchesPattern;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -76,6 +77,8 @@ class EvalChatConfigSnapshotMetaMvcTest {
                         .content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.meta.config_snapshot_hash").isString())
+                .andExpect(jsonPath("$.meta.config_snapshot_id", matchesPattern(
+                        "travel-ai:config-snapshot/v1/sha256/[a-f0-9]{64}")))
                 .andExpect(jsonPath("$.meta.config_snapshot['app.agent.max-steps']").exists())
                 .andExpect(jsonPath("$.meta.config_snapshot['app.eval.llm-real-enabled']").value("false"));
     }

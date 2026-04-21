@@ -72,6 +72,11 @@ public class EvalChatService {
     /** 与主线 SSE {@code TravelAgent} 总超时提示对齐的评测归因码。 */
     public static final String ERROR_CODE_AGENT_TOTAL_TIMEOUT = "AGENT_TOTAL_TIMEOUT";
 
+    /**
+     * 写入 {@link EvalChatMeta#setConfigSnapshotId} 的前缀，与 {@link #stampConfigSnapshotHashOnMeta} 中 SHA-256 小写 hex 拼接。
+     */
+    static final String CONFIG_SNAPSHOT_ID_PREFIX = "travel-ai:config-snapshot/v1/sha256/";
+
     private final PlanParseCoordinator planParseCoordinator;
     private final PlanParser planParser;
     private final EvalToolStageRunner evalToolStageRunner;
@@ -161,7 +166,8 @@ public class EvalChatService {
     }
 
     /**
-     * P1-0 harness：用固定白名单键拼出稳定快照串并取 SHA-256；可选将同源键值写入 {@code meta.config_snapshot}。\n
+     * P1-0 harness：用固定白名单键拼出稳定快照串并取 SHA-256；写入 {@code meta.config_snapshot_hash} 与同源
+     * {@code meta.config_snapshot_id}；可选将键值写入 {@code meta.config_snapshot}。\n
      * 密钥类配置永不进入快照；明文对象受 {@code app.eval.config-snapshot-meta-enabled} 控制（默认关）。
      */
     private void stampConfigSnapshotHashOnMeta(EvalChatMeta meta) {
@@ -178,6 +184,7 @@ public class EvalChatService {
             return;
         }
         meta.setConfigSnapshotHash(hash);
+        meta.setConfigSnapshotId(CONFIG_SNAPSHOT_ID_PREFIX + hash);
         meta.setConfigSnapshotHashAlg("SHA-256");
         meta.setConfigSnapshotHashScope("app.agent.* + app.eval.* (safe whitelist)");
         if (appEvalProperties.isConfigSnapshotMetaEnabled()) {

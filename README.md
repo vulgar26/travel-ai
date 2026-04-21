@@ -168,6 +168,8 @@ npm run dev
 | `app.eval.llm-real-required-tag-prefixes` | 与上一项联用的前缀列表（YAML 数组）；省略时默认仅 `cost/`（评测平台可对抽样行打 `cost/...` 类 tag） |
 | `app.eval.config-snapshot-meta-enabled` | 为 **true** 时在评测响应 **`meta.config_snapshot`** 中写入与 **`config_snapshot_hash`** 同源的键值对象（字符串值）；默认 **false** |
 
+评测 **`meta.config_snapshot_id`**：与 **`config_snapshot_hash`** 同时出现，形如 `travel-ai:config-snapshot/v1/sha256/<64位hex>`，给报表/外存一个稳定主键名（内容仍由 hash 指纹）。
+
 评测 **`meta.policy_events[]`**（无单独开关）：在 SafetyGate、plan 后查询安全、行为策略、RAG 门控、TOOL 阶段等短路点写入结构化事件（无 query 原文）；口径见 **[`docs/eval/P1_HARNESS_GAP.md`](docs/eval/P1_HARNESS_GAP.md)**。
 
 开启 **`llm-real-enabled`** 做 provider usage 对账前，请先读 **[`docs/eval/LLM_REAL_USAGE_RUNBOOK.md`](docs/eval/LLM_REAL_USAGE_RUNBOOK.md)**（抽样、`eval_tags`、归因码与合规）。
