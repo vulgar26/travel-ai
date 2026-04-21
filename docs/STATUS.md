@@ -26,6 +26,7 @@ Spring Boot 3 + Spring AI（DashScope）的 **出行规划演示后端**：**JWT
 | 限流 | Bucket4j：`app.rate-limit.chat.*`、`app.rate-limit.login.*`；超额 **429** JSON 与鉴权同形（`error`+`message`，`JsonApiErrorSupport`） |
 | 长期画像 | Postgres `user_profile`；`GET/PUT/PATCH/DELETE /travel/profile`（删除可选 `clearChatMemory` 清 Redis 会话）；`app.memory.long-term` 控制是否注入主线 prompt；**从对话抽取**（`ProfileExtractionService` + `POST/GET/POST/DELETE …/extract-suggestion|pending-extraction|confirm-extraction`）；`app.memory.auto-extract.after-chat` 可选在 SSE 完成后异步写待确认或直接落库；Redis 会话仍为短期记忆（TTL 见 `RedisChatMemory`） |
 | 评测 | `EvalChatService` 等：plan 解析 repair once、TOOL/RAG/safety stub、`meta` 含 `low_confidence_reasons`、**`recovery_action` / `self_check`（reflection stub）**、E7 membership |
+| 评测回放（进行中） | Postgres **`eval_conversation_checkpoint`**（Flyway **V3**）：`plan_raw_sha256` + `last_completed_stage` 等；**应用层尚未写入**，见 [`eval/EVAL_REPLAY_CHECKPOINT.md`](eval/EVAL_REPLAY_CHECKPOINT.md) |
 | 工程 | Docker Compose、Flyway、Actuator、Testcontainers 集成测试（含 eval 网关 401/200） |
 
 ---
@@ -50,6 +51,7 @@ Spring Boot 3 + Spring AI（DashScope）的 **出行规划演示后端**：**JWT
 | [`DAY10_P0_CLOSURE.md`](DAY10_P0_CLOSURE.md) | Day10 过线证据与里程碑留痕 |
 | [`HARNESS_RULES.md`](HARNESS_RULES.md) | harness 脚本与周报模板 |
 | [`eval.md`](eval.md) | 手工 RAG 回归问题集 |
+| [`eval/EVAL_REPLAY_CHECKPOINT.md`](eval/EVAL_REPLAY_CHECKPOINT.md) | 评测回放 / 断点：表结构与设计（V3） |
 | [`TOOL_GOVERNANCE_SPEC.md`](TOOL_GOVERNANCE_SPEC.md) | 工具归因与观测字段约定 |
 
 ---

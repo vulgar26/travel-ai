@@ -2,7 +2,7 @@
 
 **维护约定**：以 `src/main/java` 与 `application*.yml` 为真源；本文件随合入更新。**外部计划**路径：`D:\Projects\Vagent\plans\travel-ai-upgrade.md`（不在本仓库内，此处仅摘要对照）。
 
-**更新日期**：2026-04-21（§4：`POST /travel/chat` + `max-query-chars`；`docs/eval.md` 链至 **`LLM_REAL_USAGE_RUNBOOK`**；§5：429 限流体 `error`+`message`；**`meta.config_snapshot_id`**；可选 **`meta.config_snapshot`**；评测 **`meta.policy_events[]`**；**`context_truncation_reasons`** 含检索候选上限与改写截断；含历史 §4/§5 条目）
+**更新日期**：2026-04-21（§4：`POST /travel/chat` + `max-query-chars`；`docs/eval.md` 链至 **`LLM_REAL_USAGE_RUNBOOK`**；§5：429 限流体 `error`+`message`；**`meta.config_snapshot_id`**；可选 **`meta.config_snapshot`**；评测 **`meta.policy_events[]`**；**`context_truncation_reasons`** 含检索候选上限与改写截断；**Flyway V3** `eval_conversation_checkpoint`（回放断点 schema，应用未接）；含历史 §4/§5 条目）
 
 ---
 
