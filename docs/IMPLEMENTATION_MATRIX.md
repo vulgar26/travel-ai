@@ -2,7 +2,7 @@
 
 **维护约定**：以 `src/main/java` 与 `application*.yml` 为真源；本文件随合入更新。**外部计划**路径：`D:\Projects\Vagent\plans\travel-ai-upgrade.md`（不在本仓库内，此处仅摘要对照）。
 
-**更新日期**：2026-04-19（§4/§5：含 `attack/*`、`P1_HARNESS_GAP` 文档对齐）
+**更新日期**：2026-04-21（§4：`POST /travel/chat` + `max-query-chars`；含历史 §4/§5 条目）
 
 ---
 
@@ -59,7 +59,7 @@
 
 - **长期记忆** `user_profile` / 删除权 / 从对话抽取（默认待确认）/ 删画像时可选清 Redis：**已做**。**未做**：独立「按字段」合规审计流；**短期记忆保留期**仍见 `RedisChatMemory`（天级 TTL + 条数上限），与画像表正交。
 - **按 plan `steps` 物理跳过阶段**：**已做**（`PlanPhysicalStagePolicy` + 主线 `TravelAgent` + 评测 `EvalChatService` / `EvalLinearAgentPipeline`；默认合法 plan 仍含全阶段以保持既有 eval 契约）。  
-- **`conversationId` 归口**：已实现 `POST /travel/conversations` 签发 + Redis 登记；`GET /travel/chat/{id}` 路径校验；`app.conversation.require-registration` 为 `true` 时强校验归属（默认 `false` 兼容演示/测试，见 `application.yml`）。
+- **`conversationId` 归口**：已实现 `POST /travel/conversations` 签发 + Redis 登记；**推荐** `POST /travel/chat/{id}`（JSON body）拉 SSE；`GET /travel/chat/{id}?query=` 仍兼容（`Deprecation`）；路径校验；`app.conversation.max-query-chars`；`app.conversation.require-registration` 为 `true` 时强校验归属（默认 `false` 兼容演示/测试，见 `application.yml`）。
 - **`attack/*` 等题库与文档对齐**：实现见 `EvalChatSafetyGate` / `EvalQuerySafetyPolicy` / `EvalBehaviorPolicy`；**可导入的示例与建议 `tags`** 已汇总于 **`docs/eval.md`** §「评测口：对抗与安全…」（批量导入 eval 平台与 CI 全量仍为后续工作）。
 
 ---

@@ -7,6 +7,8 @@ spring:
 app:
   conversation:
     require-registration: false
+    # 短于生产默认，便于断言「超长 query」400 而不把超长字符串塞进每个用例
+    max-query-chars: 256
   security:
     jwt:
       secret: test-jwt-secret-must-be-at-least-32-chars-long

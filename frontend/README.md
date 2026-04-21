@@ -18,7 +18,7 @@ npm run dev
 ## 说明
 
 - 开发服务器将 **`/api` 代理到 `http://127.0.0.1:8081`**，因此前端请求写 `/api/auth/login`、`/api/travel/chat/...`，可避免浏览器跨域。
-- SSE 使用 **`fetch` + ReadableStream** 解析（`EventSource` 无法携带 `Authorization: Bearer`）。
+- 对话 SSE：**`POST /travel/chat/{conversationId}`** + `Content-Type: application/json`、体 `{"query":"…"}`、`Accept: text/event-stream`；用 **`fetch` + ReadableStream** 解析（`EventSource` 不便携带 `Authorization: Bearer`）。
 - **知识上传**：页面内「上传知识」或 `POST /api/knowledge/upload`，表单字段 **`file`**，仅 **`.txt`**。必须先登录，否则检索会显示「未命中知识库」。
 
 ## 账号

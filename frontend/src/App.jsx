@@ -219,18 +219,18 @@ export default function App() {
     const ac = new AbortController()
     abortRef.current = ac
 
-    const url =
-      `/api/travel/chat/${encodeURIComponent(conversationId)}` +
-      `?query=${encodeURIComponent(query)}`
+    const url = `/api/travel/chat/${encodeURIComponent(conversationId)}`
 
     setStatus('连接 SSE…')
     try {
       const res = await fetch(url, {
-        method: 'GET',
+        method: 'POST',
         headers: {
           Accept: 'text/event-stream',
+          'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
+        body: JSON.stringify({ query }),
         signal: ac.signal,
       })
       if (!res.ok) {
@@ -360,7 +360,7 @@ export default function App() {
         </label>
         <div className="actions">
           <button type="button" onClick={startChat} disabled={!token}>
-            开始流式输出
+            开始流式输出（POST /travel/chat）
           </button>
           <button type="button" className="secondary" onClick={stopStream}>
             停止

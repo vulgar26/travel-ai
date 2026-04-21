@@ -1,6 +1,6 @@
 # 项目现状（以代码为准）
 
-**更新时间**：2026-04-18  
+**更新时间**：2026-04-21  
 **仓库**：`travel-ai-planner`  
 **实现真源**：`src/main/java`、`src/main/resources/application.yml`  
 **与 Vagent 计划对照**：[`docs/IMPLEMENTATION_MATRIX.md`](IMPLEMENTATION_MATRIX.md)（逐项对应 `travel-ai-upgrade.md` 类目标，含「已做 / 未做 / 偏差」）
@@ -17,7 +17,7 @@ Spring Boot 3 + Spring AI（DashScope）的 **出行规划演示后端**：**JWT
 
 | 域 | 说明 |
 |----|------|
-| 对话 | `POST /travel/conversations` 签发并登记 `conversationId`；`GET /travel/chat/{conversationId}?query=…`（路径校验；可选 `app.conversation.require-registration` 强校验归属），SSE：`引用首包` + `data` 流 + `comment` 心跳；`[perf]` 日志 |
+| 对话 | `POST /travel/conversations` 签发并登记 `conversationId`；**推荐** `POST /travel/chat/{id}` + JSON `{"query":"…"}`（SSE；`app.conversation.max-query-chars`）；`GET …?query=` **兼容**（响应 `Deprecation: true`）；路径校验；可选 `app.conversation.require-registration`；`引用首包` + `data` 流 + `comment` 心跳；`[perf]` 日志 |
 | 主线编排 | `TravelAgent`：`PLAN → … → WRITE` 固定顺序；`RETRIEVE`/`TOOL`/`GUARD` 按 plan `steps` 物理跳过（`PlanPhysicalStagePolicy`）；`RetrieveEmptyHitGate`；计划 JSON 可经 LLM 产出（`app.agent.plan-stage.enabled`） |
 | RAG | `QueryRewriter`（失败兜底 + 行长限制）、合并去重检索、`user_id` 过滤 |
 | 工具 | `WeatherTool`；`ToolExecutor` / 熔断 / 限流 / 可观测；HTTP 超时见 `app.agent.tool-timeout` |

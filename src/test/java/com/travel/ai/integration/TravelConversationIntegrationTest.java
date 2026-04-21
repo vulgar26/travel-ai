@@ -21,9 +21,9 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
 import reactor.core.publisher.Flux;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -41,19 +41,16 @@ import static org.mockito.Mockito.when;
 @SuppressWarnings("unchecked")
 class TravelConversationIntegrationTest {
 
-    private static final DockerImageName PGVECTOR =
-            DockerImageName.parse("pgvector/pgvector:pg16").asCompatibleSubstituteFor("postgres");
-
     @Container
     @ServiceConnection
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PGVECTOR)
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(IntegrationTestImages.postgresPgvector())
             .withDatabaseName("ragent")
             .withUsername("postgres")
             .withPassword("postgres");
 
     @Container
     @ServiceConnection
-    static GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:7-alpine"))
+    static GenericContainer<?> redis = new GenericContainer<>(IntegrationTestImages.redis())
             .withExposedPorts(6379);
 
     @MockBean
@@ -149,8 +146,60 @@ class TravelConversationIntegrationTest {
                     new HttpEntity<>(headers),
                     String.class);
             assertThat(res.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(res.getHeaders().getFirst("Deprecation")).isEqualTo("true");
         } finally {
             appConversationProperties.setRequireRegistration(prev);
         }
+    }
+
+    @Test
+    void postChat_withToken_reachesAgent() {
+        when(travelAgent.chat(anyString(), anyString())).thenReturn(
+                Flux.just(ServerSentEvent.builder("stub").build()));
+        String token = loginDemo();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(token);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setAccept(Collections.singletonList(MediaType.TEXT_EVENT_STREAM));
+        String body = "{\"query\":\"hello from post\"}";
+        ResponseEntity<String> res = restTemplate.exchange(
+                "/travel/chat/c1",
+                HttpMethod.POST,
+                new HttpEntity<>(body, headers),
+                String.class);
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(res.getBody()).contains("stub");
+    }
+
+    @Test
+    void postChat_queryTooLong_returns400() {
+        String token = loginDemo();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(token);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        String longQuery = "x".repeat(257);
+        String body = "{\"query\":\"" + longQuery + "\"}";
+        ResponseEntity<String> res = restTemplate.exchange(
+                "/travel/chat/c1",
+                HttpMethod.POST,
+                new HttpEntity<>(body, headers),
+                String.class);
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(res.getBody()).contains("error").contains("max length");
+    }
+
+    @Test
+    void getChat_queryTooLong_returns400() {
+        String token = loginDemo();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(token);
+        String longQuery = "y".repeat(257);
+        ResponseEntity<String> res = restTemplate.exchange(
+                "/travel/chat/c1?query=" + longQuery,
+                HttpMethod.GET,
+                new HttpEntity<>(headers),
+                String.class);
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(res.getBody()).contains("error").contains("max length");
     }
 }

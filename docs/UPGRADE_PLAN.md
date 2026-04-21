@@ -307,6 +307,8 @@
 
 **验收**：前端可走 POST；原 GET 行为有迁移说明或兼容期。
 
+**状态（本仓）**：**已做** — `POST /travel/chat/{id}` + `app.conversation.max-query-chars`（默认 8192）；GET 仍可用并返回 `Deprecation: true`；`frontend` 默认走 POST；集成测试 `application-test.yml` 中为 **256** 便于断言超长 **400**。
+
 ---
 
 ## 附录 A — 实施顺序建议
@@ -344,7 +346,7 @@
 - [x] `KnowledgeServiceImplTest` 在 `@BeforeEach` 绑定 `SecurityContext`（等价于已登录 `demo`，见 P4-1）  
 - [x] 至少一条 JWT 链路与 eval 网关链路的集成测试（`TravelAiApplicationIntegrationTest`，含未授权访问 JSON 断言）  
 - [x] `TravelController` 无未用 `ChatClient.Builder`；`TravelAgent` 构造注入字段均为在用（见 P5-1；若后续引入死字段再开任务清理）  
-- [ ] （可选）聊天 POST 与 query 长度校验已上线并文档化  
+- [x] （可选）聊天 POST 与 query 长度校验已上线并文档化（`POST /travel/chat/{id}` + `app.conversation.max-query-chars`；GET 兼容 + `Deprecation`）  
 
 ---
 

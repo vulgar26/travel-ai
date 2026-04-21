@@ -101,11 +101,12 @@ npm run dev
 | `GET` | `/travel/profile/pending-extraction?conversationId=…` | Bearer JWT | 读取待确认的合并预览（无则 **404**） |
 | `POST` | `/travel/profile/confirm-extraction` | Bearer JWT | 体 `{"conversationId":"…"}` 将待确认合并结果写入 PG 并清除 pending |
 | `DELETE` | `/travel/profile/pending-extraction?conversationId=…` | Bearer JWT | 放弃待确认（**204**） |
-| `GET` | `/travel/chat/{conversationId}?query=...` | Bearer JWT | **SSE**（`text/event-stream`）；`conversationId` 须符合字母数字与 `_-`，且长度 ≤128；流首含 **`event: plan_parse`**（JSON 元数据），随后为引用与正文（见上文） |
+| `POST` | `/travel/chat/{conversationId}` | Bearer JWT | **SSE**（`Accept: text/event-stream`）；`Content-Type: application/json`，体 `{"query":"..."}`（**推荐**；无 URL 长度限制、减少 query 出现在访问日志路径中的风险）；`conversationId` 规则同下；超长 `query` → **400**（见 `app.conversation.max-query-chars`） |
+| `GET` | `/travel/chat/{conversationId}?query=...` | Bearer JWT | **SSE**（同上）；**兼容保留**，响应带 `Deprecation: true`；新集成请改用 **POST** |
 | `POST` | `/api/v1/eval/chat` | **网关密钥** `X-Eval-Gateway-Key` + 已认证主体 | 评测用 **JSON**（非流式）；eval 侧另有 `X-Eval-Token` 等 membership 头，见 Vagent `eval-upgrade.md` |
 | `GET` | `/actuator/health`、`/actuator/info` | 否 | 健康与信息 |
 
-未带 JWT 访问受保护业务接口 → **401**。聊天超频 → **429**（JSON）。未配置或未携带正确评测网关密钥访问 `/api/v1/eval/**` → **401**。非法 `conversationId` 路径变量 → **400**。若 `app.conversation.require-registration=true` 且当前用户未登记该 ID → **403**。
+未带 JWT 访问受保护业务接口 → **401**。聊天超频 → **429**（JSON）。未配置或未携带正确评测网关密钥访问 `/api/v1/eval/**` → **401**。非法 `conversationId` 路径变量 → **400**。若 `app.conversation.require-registration=true` 且当前用户未登记该 ID → **403**。聊天 `query` 超出 `app.conversation.max-query-chars`（GET 与 POST 共用）→ **400**（JSON，`error`+`message`）。
 
 ---
 
@@ -139,6 +140,7 @@ npm run dev
 | 配置项 | 含义 |
 |--------|------|
 | `app.conversation.require-registration` | `true` 时仅允许已通过 `POST /travel/conversations` 登记到当前用户的 `conversationId` 调用聊天 SSE；默认 `false` 兼容旧演示与测试 |
+| `app.conversation.max-query-chars` | 单轮用户 `query` 最大字符数（**POST** JSON 与 **GET** 查询参数共用）；默认 **8192**；超出返回 **400** |
 
 ### `app.agent` 超时与步数（`application.yml`）
 
