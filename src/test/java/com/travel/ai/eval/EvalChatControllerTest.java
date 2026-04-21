@@ -30,6 +30,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultMatcher;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -39,6 +40,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -102,6 +104,8 @@ class EvalChatControllerTest {
         mutablePlanRepairModelPort.reset();
         lenient().when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of());
         lenient().when(queryRewriter.rewrite(any())).thenReturn(List.of("stub-rewrite"));
+        lenient().when(queryRewriter.rewriteWithOutcome(any())).thenReturn(
+                new QueryRewriter.RewriteOutcome(List.of("stub-rewrite"), false));
     }
 
     @Test
@@ -214,6 +218,42 @@ class EvalChatControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.meta.context_truncated").value(true))
                 .andExpect(jsonPath("$.meta.context_truncation_reasons[0]").value("sources_snippet_truncated"));
+    }
+
+    @Test
+    void metaContextTruncated_includesRetrievalCandidatesCapped() throws Exception {
+        List<Document> manyHits = new ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            manyHits.add(new Document("hit-cap-" + i, "s" + i, Map.of("user_id", "eval", "source_name", "KB")));
+        }
+        when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(manyHits);
+        String body = """
+                {"query":"评测：多候选截断","mode":"EVAL"}
+                """;
+        mockMvc.perform(post("/api/v1/eval/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.meta.context_truncated").value(true))
+                .andExpect(jsonPath("$.meta.context_truncation_reasons", hasItem("retrieval_candidates_capped")));
+    }
+
+    @Test
+    void metaContextTruncated_includesRetrievalQueryLineTruncated_whenAgentRewriteTruncates() throws Exception {
+        when(queryRewriter.rewriteWithOutcome(any())).thenReturn(
+                new QueryRewriter.RewriteOutcome(List.of("stub-rewrite"), true));
+        when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of(
+                new Document("hit-1", "snippet", Map.of("user_id", "eval", "source_name", "KB"))
+        ));
+        String body = """
+                {"query":"评测：改写截断标记","mode":"AGENT"}
+                """;
+        mockMvc.perform(post("/api/v1/eval/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.meta.context_truncated").value(true))
+                .andExpect(jsonPath("$.meta.context_truncation_reasons", hasItem("retrieval_query_line_truncated")));
     }
 
     @Test

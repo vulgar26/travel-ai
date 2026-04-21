@@ -64,6 +64,8 @@ class EvalChatControllerTotalTimeoutTest {
     void defaults() {
         lenient().when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(java.util.List.of());
         lenient().when(queryRewriter.rewrite(any())).thenReturn(java.util.List.of("stub-rewrite"));
+        lenient().when(queryRewriter.rewriteWithOutcome(any())).thenReturn(
+                new com.travel.ai.agent.QueryRewriter.RewriteOutcome(java.util.List.of("stub-rewrite"), false));
     }
 
     @Test

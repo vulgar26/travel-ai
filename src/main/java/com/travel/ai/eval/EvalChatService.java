@@ -58,6 +58,8 @@ import static com.travel.ai.eval.EvalRagGateScenarios.Kind;
  * Day5 起对非空 query 执行 {@link PlanParseCoordinator}（repair once + {@code plan_parse_attempts/outcome}）；
  * Day6 起在 TOOL 阶段串行执行 {@link EvalToolStageRunner}（超时/失败降级 + {@code tool} / {@code meta.tool_*} / {@code error_code}）。
  * Day7 起支持 {@link EvalRagGateScenarios}：空命中/低置信门控（P0 不启用 score 阈值），{@code meta.low_confidence} + {@code meta.low_confidence_reasons[]}。
+ * <p>
+ * {@code meta.context_truncation_reasons}：除 snippet / 工具输出外，另含检索候选上限与（非 {@code EVAL} 模式下）改写单行截断归因。
  * Day9 起在 plan 解析成功后执行 {@link EvalQuerySafetyPolicy}：对抗/敏感句式稳定 {@code deny} 或 {@code clarify}，归因见 {@link EvalSafetyErrorCodes}。
  * P1-0 harness：在门控/策略短路点追加 {@code meta.policy_events[]}（{@link EvalChatPolicyEvent}，无敏感原文）。
  * <p>
@@ -686,6 +688,12 @@ public class EvalChatService {
         if (Boolean.TRUE.equals(meta.getToolOutputTruncated())) {
             reasons.add("tool_output_truncated");
         }
+        if (evidence.retrievalCandidatesCapped()) {
+            reasons.add("retrieval_candidates_capped");
+        }
+        if (evidence.retrievalQueryLineTruncated()) {
+            reasons.add("retrieval_query_line_truncated");
+        }
         if (!reasons.isEmpty()) {
             meta.setContextTruncated(true);
             meta.setContextTruncationReasons(Collections.unmodifiableList(reasons));
@@ -778,12 +786,14 @@ public class EvalChatService {
             List<EvalChatSource> sources,
             int candidateTotal,
             int candidateLimitN,
-            boolean sourcesSnippetTruncated
+            boolean sourcesSnippetTruncated,
+            boolean retrievalCandidatesCapped,
+            boolean retrievalQueryLineTruncated
     ) {
     }
 
     private static Evidence emptyEvidence() {
-        return new Evidence(List.of(), List.of(), 0, 0, false);
+        return new Evidence(List.of(), List.of(), 0, 0, false, false, false);
     }
 
     private record DedupedSlice(List<Document> docs, int totalUnique) {
@@ -796,14 +806,22 @@ public class EvalChatService {
         com.travel.ai.agent.QueryRewriter rewriter = queryRewriter.getIfAvailable();
         VectorStore vs = vectorStore.getIfAvailable();
         if (rewriter == null || vs == null) {
-            return new Evidence(List.of(), List.of(), 0, 0, false);
+            return new Evidence(List.of(), List.of(), 0, 0, false, false, false);
         }
 
         int topN = (xEvalMembershipTopN != null && xEvalMembershipTopN > 0) ? Math.min(50, xEvalMembershipTopN) : 8;
 
         // EVAL 跑批场景：避免为“证据检索”引入外部 LLM 改写（成本/延迟/不稳定）。
         // 后续若引入缓存或规则改写，可在此处平滑演进。
-        List<String> queries = "EVAL".equalsIgnoreCase(mode) ? List.of(query) : rewriter.rewrite(query);
+        boolean queryLineTruncated = false;
+        List<String> queries;
+        if ("EVAL".equalsIgnoreCase(mode)) {
+            queries = List.of(query);
+        } else {
+            com.travel.ai.agent.QueryRewriter.RewriteOutcome ro = rewriter.rewriteWithOutcome(query);
+            queries = ro.queries();
+            queryLineTruncated = ro.anyLineTruncated();
+        }
 
         // 检索隔离：主链路按登录 user_id；eval 跑批通常无登录态，因此使用专用 eval 租户（避免泄露真实用户数据）。
         // 注意：要让 eval 跑批命中，需要将评测用知识写入 metadata.user_id="eval"（见 KnowledgeInitializer / 知识导入逻辑）。
@@ -839,6 +857,7 @@ public class EvalChatService {
         DedupedSlice slice = mergeAndDedupeDocuments(flat, topN);
         List<Document> docs = slice.docs();
         int candidateTotalUnique = slice.totalUnique();
+        boolean candidatesCapped = candidateTotalUnique > topN;
 
         List<EvalChatRetrievalHit> hits = new ArrayList<>(docs.size());
         List<EvalChatSource> sources = new ArrayList<>(docs.size());
@@ -876,7 +895,9 @@ public class EvalChatService {
                 Collections.unmodifiableList(sources),
                 candidateTotalUnique,
                 topN,
-                sourcesSnippetTruncated
+                sourcesSnippetTruncated,
+                candidatesCapped,
+                queryLineTruncated
         );
     }
 

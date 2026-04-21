@@ -7,9 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * 将用户自然语言问题改写成若干条「适合向量检索」的短 query。
@@ -54,13 +52,26 @@ public class QueryRewriter {
     }
 
     /**
+     * 改写结果：检索 query 列表 + 是否发生过「单行超长截断」（用于评测 {@code meta.context_truncation_reasons}）。
+     */
+    public record RewriteOutcome(List<String> queries, boolean anyLineTruncated) {
+    }
+
+    /**
      * 对外唯一入口：返回长度 1～3 的非空检索串列表；保证至少含一条可用 query（通常为原问题）。
      */
     public List<String> rewrite(String userQuestion) {
+        return rewriteWithOutcome(userQuestion).queries();
+    }
+
+    /**
+     * 与 {@link #rewrite} 相同逻辑，额外返回模型输出行是否触发 {@link #maxLineLength} 截断。
+     */
+    public RewriteOutcome rewriteWithOutcome(String userQuestion) {
         String original = userQuestion == null ? "" : userQuestion.trim();
         if (original.isEmpty()) {
             log.warn("查询改写：用户问题为空，返回占位单条以避免下游 NPE");
-            return List.of(" ");
+            return new RewriteOutcome(List.of(" "), false);
         }
 
         String result;
@@ -69,24 +80,33 @@ public class QueryRewriter {
         } catch (Exception e) {
             // LLM 超时、鉴权失败、网络错误等：直接回退为原问题，仍可进行单向量检索
             log.warn("查询改写：LLM 调用失败，回退为原始问题。原因={}", e.toString());
-            return padToTarget(List.of(original), original);
+            return new RewriteOutcome(padToTarget(List.of(original), original), false);
         }
 
         if (result == null || result.isBlank()) {
             log.warn("查询改写：模型返回空内容，回退为原始问题");
-            return padToTarget(List.of(), original);
+            return new RewriteOutcome(padToTarget(List.of(), original), false);
         }
 
         log.info("查询改写结果：{}", result);
 
-        List<String> parsed = Arrays.stream(result.split("\n"))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .map(this::truncateLine)
-                .limit(TARGET_QUERY_COUNT)
-                .collect(Collectors.toList());
+        boolean truncated = false;
+        List<String> parsed = new ArrayList<>();
+        for (String line : result.split("\n")) {
+            String t = line.trim();
+            if (t.isEmpty()) {
+                continue;
+            }
+            if (t.length() > maxLineLength) {
+                truncated = true;
+            }
+            parsed.add(truncateLine(t));
+            if (parsed.size() >= TARGET_QUERY_COUNT) {
+                break;
+            }
+        }
 
-        return padToTarget(parsed, original);
+        return new RewriteOutcome(padToTarget(parsed, original), truncated);
     }
 
     /**

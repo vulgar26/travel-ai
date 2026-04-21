@@ -65,6 +65,8 @@ class EvalChatLlmRealTagGateMvcTest {
     void stubs() {
         lenient().when(vectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(List.of());
         lenient().when(queryRewriter.rewrite(any())).thenReturn(List.of("stub-rewrite"));
+        lenient().when(queryRewriter.rewriteWithOutcome(any())).thenReturn(
+                new QueryRewriter.RewriteOutcome(List.of("stub-rewrite"), false));
     }
 
     @Test

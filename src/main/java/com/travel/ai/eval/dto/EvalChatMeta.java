@@ -179,7 +179,8 @@ public class EvalChatMeta {
     private Boolean contextTruncated;
 
     /**
-     * 截断原因枚举（无需包含敏感原文），例如：{@code sources_snippet_truncated}、{@code tool_output_truncated}。
+     * 截断原因枚举（无需包含敏感原文），例如：{@code sources_snippet_truncated}、{@code tool_output_truncated}、
+     * {@code retrieval_candidates_capped}（去重后命中数超过对外返回上限）、{@code retrieval_query_line_truncated}（非 {@code EVAL} 模式下改写单行超长截断）。
      */
     private List<String> contextTruncationReasons;
 
