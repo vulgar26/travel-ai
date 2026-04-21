@@ -187,7 +187,28 @@ public class TravelAgent {
         final String profileExtractionUsername = currentUsernameForProfileHook();
 
         MainAgentTurnContext ctx = new MainAgentTurnContext(conversationId, userMessage, requestId);
-        runLinearStages(ctx);
+        try {
+            runLinearStages(ctx);
+        } catch (Exception e) {
+            log.error("[agent] pipeline_failed requestId={} err={}", requestId, e.toString());
+            Flux<ServerSentEvent<String>> err = Flux.just(ServerSentEvent.<String>builder()
+                    .event("error")
+                    .data(SseControlEvent.error(
+                            requestId,
+                            "AGENT_ERROR",
+                            "服务端处理异常，请稍后重试。"
+                    ).toSseJson())
+                    .build());
+            Flux<ServerSentEvent<String>> fallback = Flux.just(ServerSentEvent.<String>builder()
+                    .data("【系统提示】服务端处理异常，请稍后重试。")
+                    .build());
+            Flux<ServerSentEvent<String>> done = Flux.just(ServerSentEvent.<String>builder()
+                    .event("done")
+                    .data(SseControlEvent.done(requestId).toSseJson())
+                    .build());
+            return Flux.concat(err, fallback, done)
+                    .doFinally(signalType -> MDC.remove("requestId"));
+        }
 
         if (ctx.skipLlmForEmptyHits) {
             String gateCode = ctx.emptyHitsGateLogCode != null
@@ -253,6 +274,21 @@ public class TravelAgent {
                                     .build());
                             Flux<ServerSentEvent<String>> fallback = Flux.just(ServerSentEvent.<String>builder()
                                     .data("【系统提示】本轮对话处理超时，请简化问题后重试。")
+                                    .build());
+                            return Flux.concat(err, fallback);
+                        })
+                .onErrorResume(t -> {
+                            log.warn("[agent] non_timeout_error requestId={} err={}", requestId, t.toString());
+                            Flux<ServerSentEvent<String>> err = Flux.just(ServerSentEvent.<String>builder()
+                                    .event("error")
+                                    .data(SseControlEvent.error(
+                                            requestId,
+                                            "AGENT_ERROR",
+                                            "服务端处理异常，请稍后重试。"
+                                    ).toSseJson())
+                                    .build());
+                            Flux<ServerSentEvent<String>> fallback = Flux.just(ServerSentEvent.<String>builder()
+                                    .data("【系统提示】服务端处理异常，请稍后重试。")
                                     .build());
                             return Flux.concat(err, fallback);
                         })
