@@ -11,6 +11,7 @@
   - **`StageEvent` / `StageName`**：固定线性阶段过程（`event: stage` / eval 的 `meta.stage_order`）
   - **`PolicyEvent`**：门控/工具治理/断点等策略轨迹（`event: policy` / eval 的 `meta.policy_events[]`）
   - **`PlanParseEvent`**：plan parse 元信息（`event: plan_parse` / eval 的 `meta.plan_parse_*`）
+  - **`SseControlEvent`**：SSE 控制事件（`event: error` / `event: done`，用于客户端明确收尾与错误展示）
 - **P0 数值门槛（eval 批跑）**：与手工表互补，见 [`eval/P0_THRESHOLD_RUNBOOK.md`](eval/P0_THRESHOLD_RUNBOOK.md)（`run.report` 聚合与 SSOT 比例核对）。
 - **`sources[]` vs SSE 引用块**：评测 JSON 与首包纯文本的**同源差异**见 [`eval/SOURCES_EVAL_VS_SSE.md`](SOURCES_EVAL_VS_SSE.md)。
 - **P1-0 harness 缺口与分步路线**：[`eval/P1_HARNESS_GAP.md`](P1_HARNESS_GAP.md)（`EvalChatMeta` 已具备字段 vs SSOT 仍缺项）。**`meta.config_snapshot_id`** 与 **`config_snapshot_hash`** 同源；可选 **`meta.config_snapshot`** 见 **`app.eval.config-snapshot-meta-enabled`**（`README`）。**`context_truncation_reasons`** 含 **`retrieval_candidates_capped`**、**`retrieval_query_line_truncated`**（非 `EVAL` 改写）等，见同文件 §2。  

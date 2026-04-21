@@ -38,6 +38,7 @@ import com.travel.ai.runtime.StageName;
 import com.travel.ai.runtime.PolicyEvent;
 import com.travel.ai.runtime.PlanParseEvent;
 import com.travel.ai.runtime.PolicyStageAnchor;
+import com.travel.ai.runtime.SseControlEvent;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -232,16 +233,30 @@ public class TravelAgent {
                 .map(tick -> ServerSentEvent.<String>builder().comment("keepalive").build());
 
         Flux<ServerSentEvent<String>> merged = Flux.concat(planParseMetaFlux, stageEventsFlux, policyEventsFlux, citationFlux, Flux.merge(tokenEvents, keepAlive));
+        Flux<ServerSentEvent<String>> done = Flux.just(ServerSentEvent.<String>builder()
+                .event("done")
+                .data(SseControlEvent.done(requestId).toSseJson())
+                .build());
         return merged
                 .timeout(agentTotalTimeout)
                 .onErrorResume(t -> isTotalTimeout(t),
                         t -> {
                             log.warn("[agent] total_timeout elapsed limit={} requestId={} error={}",
                                     agentTotalTimeout, requestId, t.toString());
-                            return Flux.just(ServerSentEvent.<String>builder()
+                            Flux<ServerSentEvent<String>> err = Flux.just(ServerSentEvent.<String>builder()
+                                    .event("error")
+                                    .data(SseControlEvent.error(
+                                            requestId,
+                                            "AGENT_TOTAL_TIMEOUT",
+                                            "本轮对话处理超时，请简化问题后重试。"
+                                    ).toSseJson())
+                                    .build());
+                            Flux<ServerSentEvent<String>> fallback = Flux.just(ServerSentEvent.<String>builder()
                                     .data("【系统提示】本轮对话处理超时，请简化问题后重试。")
                                     .build());
+                            return Flux.concat(err, fallback);
                         })
+                .concatWith(done)
                 .doOnCancel(() -> log.info("SSE 订阅已取消（多为客户端断开），conversationId={}, requestId={}", conversationId, requestId))
                 .doOnComplete(() -> profileExtractionCoordinator.onChatCompleted(profileExtractionUsername, conversationId, requestId))
                 .doFinally(signalType -> MDC.remove("requestId"));
