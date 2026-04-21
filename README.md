@@ -168,6 +168,8 @@ npm run dev
 | `app.eval.llm-real-required-tag-prefixes` | 与上一项联用的前缀列表（YAML 数组）；省略时默认仅 `cost/`（评测平台可对抽样行打 `cost/...` 类 tag） |
 | `app.eval.config-snapshot-meta-enabled` | 为 **true** 时在评测响应 **`meta.config_snapshot`** 中写入与 **`config_snapshot_hash`** 同源的键值对象（字符串值）；默认 **false** |
 
+评测 **`meta.policy_events[]`**（无单独开关）：在 SafetyGate、plan 后查询安全、行为策略、RAG 门控、TOOL 阶段等短路点写入结构化事件（无 query 原文）；口径见 **[`docs/eval/P1_HARNESS_GAP.md`](docs/eval/P1_HARNESS_GAP.md)**。
+
 开启 **`llm-real-enabled`** 做 provider usage 对账前，请先读 **[`docs/eval/LLM_REAL_USAGE_RUNBOOK.md`](docs/eval/LLM_REAL_USAGE_RUNBOOK.md)**（抽样、`eval_tags`、归因码与合规）。
 
 评测请求体可选 **`eval_reflection_scenario`**：`self_check_ok` → `meta.recovery_action=continue` 且带 `meta.self_check`；`recovery_suggest_clarify` → `meta.recovery_action=suggest_clarify`。默认成功路径为 `recovery_action=none`（与 `replan_count=0` 正交，无二次 plan LLM）。
