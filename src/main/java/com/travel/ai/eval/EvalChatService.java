@@ -2,6 +2,7 @@ package com.travel.ai.eval;
 
 import com.travel.ai.eval.dto.EvalCapabilities;
 import com.travel.ai.eval.dto.EvalChatMeta;
+import com.travel.ai.eval.dto.EvalChatPolicyEvent;
 import com.travel.ai.eval.dto.EvalChatRequest;
 import com.travel.ai.eval.dto.EvalChatResponse;
 import com.travel.ai.eval.dto.EvalChatResultTool;
@@ -38,6 +39,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
@@ -57,6 +59,7 @@ import static com.travel.ai.eval.EvalRagGateScenarios.Kind;
  * Day6 起在 TOOL 阶段串行执行 {@link EvalToolStageRunner}（超时/失败降级 + {@code tool} / {@code meta.tool_*} / {@code error_code}）。
  * Day7 起支持 {@link EvalRagGateScenarios}：空命中/低置信门控（P0 不启用 score 阈值），{@code meta.low_confidence} + {@code meta.low_confidence_reasons[]}。
  * Day9 起在 plan 解析成功后执行 {@link EvalQuerySafetyPolicy}：对抗/敏感句式稳定 {@code deny} 或 {@code clarify}，归因见 {@link EvalSafetyErrorCodes}。
+ * P1-0 harness：在门控/策略短路点追加 {@code meta.policy_events[]}（{@link EvalChatPolicyEvent}，无敏感原文）。
  * <p>
  * eval-upgrade.md E7：在 {@link EvalMembershipHttpContext} 完整且存在 {@code retrieval_hits} 时写入
  * {@code meta.retrieval_hit_id_hashes} 及配套口径字段。
@@ -313,6 +316,7 @@ public class EvalChatService {
                 response.setErrorCode(d.errorCode());
             }
             response.setAnswer(d.answer());
+            appendPolicyEvent(meta, "safety_gate", "pre_plan", d.behavior(), d.ruleId(), d.errorCode());
             return complete(response, request, membershipCtx, emptyEvidence());
         }
 
@@ -365,6 +369,7 @@ public class EvalChatService {
                 response.setErrorCode(d.errorCode());
             }
             response.setAnswer(d.answer());
+            appendPolicyEvent(meta, "query_safety", "post_plan", d.behavior(), firstPolicyRuleFromReasons(d.reasons()), d.errorCode());
             return complete(response, request, membershipCtx, evidence);
         }
 
@@ -380,6 +385,8 @@ public class EvalChatService {
                 if (decision.reasons() != null && !decision.reasons().isEmpty()) {
                     meta.setLowConfidenceReasons(decision.reasons());
                 }
+                appendPolicyEvent(meta, "behavior_policy", "post_retrieve", decision.behavior(),
+                        firstPolicyRuleFromReasons(decision.reasons()), decision.errorCode());
                 if ("clarify".equalsIgnoreCase(decision.behavior())) {
                     meta.setLowConfidence(true);
                     meta.setStageOrder(List.of("PLAN", "RETRIEVE"));
@@ -412,6 +419,8 @@ public class EvalChatService {
             response.setBehavior("clarify");
             response.setErrorCode(EvalRagGateScenarios.ERROR_CODE_RETRIEVE_EMPTY);
             response.setAnswer("检索零命中：请补充关键词/范围/上下文，或提供可引用资料后再继续。");
+            appendPolicyEvent(meta, "rag_gate", "post_retrieve", "clarify", "business_empty_hits",
+                    EvalRagGateScenarios.ERROR_CODE_RETRIEVE_EMPTY);
             return complete(response, request, membershipCtx, evidence);
         }
 
@@ -426,6 +435,8 @@ public class EvalChatService {
             response.setBehavior("clarify");
             response.setErrorCode(EvalRagGateScenarios.ERROR_CODE_RETRIEVE_LOW_CONFIDENCE);
             response.setAnswer("信息不足或指代不明：请补充目的地/日期/偏好，或说明你指的是哪个对象/项目。");
+            appendPolicyEvent(meta, "rag_gate", "post_retrieve", "clarify", "business_low_confidence_heuristic",
+                    EvalRagGateScenarios.ERROR_CODE_RETRIEVE_LOW_CONFIDENCE);
             return complete(response, request, membershipCtx, evidence);
         }
 
@@ -439,10 +450,14 @@ public class EvalChatService {
                 meta.setLowConfidenceReasons(EvalRagGateScenarios.REASONS_EMPTY_HITS);
                 response.setErrorCode(EvalRagGateScenarios.ERROR_CODE_RETRIEVE_EMPTY);
                 response.setAnswer("检索零命中，已门控为澄清（评测 stub，P0 未启用 score 阈值）。");
+                appendPolicyEvent(meta, "rag_gate", "post_retrieve", "clarify", "stub_empty_hits",
+                        EvalRagGateScenarios.ERROR_CODE_RETRIEVE_EMPTY);
             } else {
                 meta.setRetrieveHitCount(1);
                 meta.setLowConfidenceReasons(EvalRagGateScenarios.REASONS_LOW_CONFIDENCE);
                 response.setAnswer("证据置信不足，已门控为澄清（评测 stub，P0 未启用 score 阈值）。");
+                appendPolicyEvent(meta, "rag_gate", "post_retrieve", "clarify", "stub_low_confidence",
+                        EvalRagGateScenarios.ERROR_CODE_RETRIEVE_LOW_CONFIDENCE);
             }
             response.setBehavior("clarify");
             return complete(response, request, membershipCtx, evidence);
@@ -508,12 +523,55 @@ public class EvalChatService {
                     response.setAnswer("工具触发限流，已降级返回（评测 stub）。");
                 }
             }
+            appendPolicyEvent(meta, "tool_stage", "tool", response.getBehavior(), inv.outcome(), response.getErrorCode());
             return complete(response, request, membershipCtx, evidence);
         }
 
         response.setAnswer("Day3：meta 可观测稳定（stage_order / step_count / replan_count=0）；阶段仍为占位执行。");
         response.setBehavior("answer");
         return complete(response, request, membershipCtx, evidence);
+    }
+
+    private static String firstPolicyRuleFromReasons(List<String> reasons) {
+        if (reasons == null || reasons.isEmpty()) {
+            return null;
+        }
+        return reasons.stream()
+                .filter(Objects::nonNull)
+                .filter(r -> r.startsWith("safety:"))
+                .findFirst()
+                .orElseGet(() -> reasons.get(0));
+    }
+
+    private void appendPolicyEvent(
+            EvalChatMeta meta,
+            String policyType,
+            String stage,
+            String behavior,
+            String ruleId,
+            String errorCode
+    ) {
+        if (meta == null || policyType == null || policyType.isBlank()
+                || stage == null || stage.isBlank()
+                || behavior == null || behavior.isBlank()) {
+            return;
+        }
+        List<EvalChatPolicyEvent> list = meta.getPolicyEvents();
+        if (list == null) {
+            list = new ArrayList<>();
+            meta.setPolicyEvents(list);
+        }
+        EvalChatPolicyEvent e = new EvalChatPolicyEvent();
+        e.setPolicyType(policyType);
+        e.setStage(stage);
+        e.setBehavior(behavior);
+        if (ruleId != null && !ruleId.isBlank()) {
+            e.setRuleId(ruleId);
+        }
+        if (errorCode != null && !errorCode.isBlank()) {
+            e.setErrorCode(errorCode);
+        }
+        list.add(e);
     }
 
     private EvalChatResponse complete(

@@ -20,6 +20,7 @@
 | 门控 / RAG | `low_confidence`, `low_confidence_reasons`, `retrieve_hit_count` | 含 stub 场景 |
 | E7 证据 | `retrieval_hit_id_hashes`, `retrieval_hit_id_hash_alg`, `retrieval_hit_id_hash_key_derivation`, `retrieval_candidate_limit_n`, `retrieval_candidate_total`, `canonical_hit_id_scheme` | membership 对账 |
 | 安全短路 | `eval_safety_rule_id`（与 `low_confidence_reasons` 等） | 仅 SafetyGate 命中时 |
+| 策略轨迹 | `policy_events[]`（`policy_type` / `stage` / `behavior` / `rule_id` / `error_code`） | 门控或确定性策略短路时（无事件则省略） |
 | Reflection stub | `recovery_action`, `self_check` | 受 `app.eval.reflection-meta-enabled` 控制 |
 | 配置快照（可选明文） | `config_snapshot`（`Map`，与 `config_snapshot_hash` 同源键） | 仅 **`app.eval.config-snapshot-meta-enabled=true`** |
 
@@ -36,7 +37,7 @@
 | **显式 token 计数**（`prompt_tokens` 等） | **组合模式落地**：默认离线近似（`meta.context_*` + `token_source=estimate`）；当请求 `llm_mode=real` 且服务端 `app.eval.llm-real-enabled=true` 时，评测口触发一次真实 LLM 调用并 best-effort 写入 `meta.prompt_tokens/completion_tokens/total_tokens`（`token_source=provider`）。默认还要求请求体 `eval_tags` 命中配置前缀（默认 `cost/`，见 `app.eval.llm-real-require-tag-match` / `llm-real-required-tag-prefixes`），否则跳过探针并写 `provider_usage_failure_reason=tag_gate_no_tags|tag_gate_no_match`。另：`meta.provider_usage_available` / `timeout|no_usage|error|no_client` 等。主产品（SSE）也会在日志输出 `[usage]`（反射提取，失败则回退估算）。 | **已定稿**：跑法/成本/合规见 [**`LLM_REAL_USAGE_RUNBOOK.md`**](LLM_REAL_USAGE_RUNBOOK.md) |
 | **回放 / 断点恢复**（`plan_raw_hash`、按 `conversationId` 恢复 stage） | **未**做 | 独立里程碑；先文档与表结构，再实现 |
 | **`hop_trace[]` / multi-hop** | **未**做 | 属 P1-4b，与 harness 正交 |
-| **DevLog / `policy_id` 决策事件库** | 部分能力由 **`eval_safety_rule_id`**、**`low_confidence_reasons`** 承担；**无**通用决策日志流 | 可扩展 `meta.policy_events[]`（结构化、无敏感原文） |
+| **DevLog / `policy_id` 决策事件库** | 部分能力由 **`eval_safety_rule_id`**、**`low_confidence_reasons`** 承担；另已追加 **`meta.policy_events[]`**（结构化、无敏感原文；覆盖 SafetyGate / QuerySafety / BehaviorPolicy / RAG 门控 / TOOL 阶段归因） | 后续：如需与外部 DevLog id 强绑定，再引入 `policy_id` 或外存引用 |
 
 ---
 
@@ -46,6 +47,7 @@
 2. **`context_truncated` + 原因列表**：仅评测路径、仅截断可客观判定处（如 `sources[].snippet` 达 300、或工具输出截断处统一 OR）—— **已完成**。  
 3. **`config_snapshot_hash` 或小 JSON**：从 `Environment` / `AppAgentProperties` 序列化白名单键 —— **已完成（hash）**。  
 4. **Token 或字符预算**：先落字符级近似（趋势/异常检测），后续再决定是否接 tokenizer 真值 —— **已完成（近似）**。  
-5. **可选 `meta.config_snapshot` 明文键值**：与 `config_snapshot_hash` 同源白名单，**`app.eval.config-snapshot-meta-enabled`** 控制 —— **已完成**（见 `EvalChatConfigSnapshotMetaMvcTest`）。
+5. **可选 `meta.config_snapshot` 明文键值**：与 `config_snapshot_hash` 同源白名单，**`app.eval.config-snapshot-meta-enabled`** 控制 —— **已完成**（见 `EvalChatConfigSnapshotMetaMvcTest`）。  
+6. **`meta.policy_events[]`**：SafetyGate / QuerySafety / BehaviorPolicy / RAG 门控 / TOOL 阶段等短路点写入结构化事件 —— **已完成**（见 `EvalChatPolicyEventsMvcTest`）。
 
 每步单独 PR：便于 `EvalChatControllerTest` 与 `run.report` 回归。

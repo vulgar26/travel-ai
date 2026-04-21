@@ -195,6 +195,12 @@ public class EvalChatMeta {
     private String evalSafetyRuleId;
 
     /**
+     * 结构化策略/门控决策轨迹（无 query 原文）；仅当至少发生一条可归因决策时出现。
+     */
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    private List<EvalChatPolicyEvent> policyEvents;
+
+    /**
      * 检索命中条数（评测 stub）；空命中场景为 0；未参与门控时不返回。
      */
     private Integer retrieveHitCount;
@@ -548,6 +554,14 @@ public class EvalChatMeta {
 
     public void setEvalSafetyRuleId(String evalSafetyRuleId) {
         this.evalSafetyRuleId = evalSafetyRuleId;
+    }
+
+    public List<EvalChatPolicyEvent> getPolicyEvents() {
+        return policyEvents;
+    }
+
+    public void setPolicyEvents(List<EvalChatPolicyEvent> policyEvents) {
+        this.policyEvents = policyEvents;
     }
 
     public Integer getRetrieveHitCount() {
