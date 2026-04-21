@@ -3,6 +3,8 @@ package com.travel.ai.eval.dto;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 
+import java.util.List;
+
 /**
  * 评测专用 {@code POST /api/v1/eval/chat} 的请求体（P0 契约，对外 snake_case）。
  * <p>
@@ -15,6 +17,7 @@ import com.fasterxml.jackson.databind.annotation.JsonNaming;
  *   <li>{@code eval_tool_scenario}：可选，仅评测用；{@code success|timeout|error} 在 TOOL 阶段触发 stub（Day6）。</li>
  *   <li>{@code eval_rag_scenario}：可选，仅评测用；{@code empty|empty_hits|low_conf|low_confidence} 触发 RAG 门控 stub（Day7）。</li>
  *   <li>{@code eval_reflection_scenario}：可选；{@code self_check_ok|recovery_suggest_clarify} 写入 {@code meta.recovery_action} 与 {@code meta.self_check}（stub，与 replan 无关）。</li>
+ *   <li>{@code eval_tags}：可选字符串列表；与 {@code llm_mode=real} 联用时，默认要求至少一条 tag 以 {@code cost/}（可配置前缀）开头才触发 provider usage 探针，避免跑批全量计费。</li>
  * </ul>
  */
 @JsonNaming(PropertyNamingStrategies.SnakeCaseStrategy.class)
@@ -51,6 +54,9 @@ public class EvalChatRequest {
      * 若设置为 {@code real}，且服务端 {@code app.eval.llm-real-enabled=true}，则允许触发一次真实 LLM 调用以获取 provider usage（token 真值）。
      */
     private String llmMode;
+
+    /** 可选：评测平台下发的 case 标签（如 {@code cost/smoke}），用于对 {@code llm_mode=real} 的 usage 探针做抽样门禁。 */
+    private List<String> evalTags;
 
     public String getQuery() {
         return query;
@@ -114,5 +120,13 @@ public class EvalChatRequest {
 
     public void setLlmMode(String llmMode) {
         this.llmMode = llmMode;
+    }
+
+    public List<String> getEvalTags() {
+        return evalTags;
+    }
+
+    public void setEvalTags(List<String> evalTags) {
+        this.evalTags = evalTags;
     }
 }

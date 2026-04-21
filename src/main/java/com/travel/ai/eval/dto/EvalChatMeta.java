@@ -113,7 +113,10 @@ public class EvalChatMeta {
      */
     private Boolean providerUsageAvailable;
 
-    /** provider usage 获取失败的原因标签（不含敏感信息），如 {@code disabled|timeout|no_usage|error}。 */
+    /**
+     * provider usage 获取失败的原因标签（不含敏感信息），如 {@code timeout|no_usage|error|no_client}；\n
+     * 标签门禁未通过时为 {@code tag_gate_no_tags}（未传 {@code eval_tags}）或 {@code tag_gate_no_match}（无命中配置前缀）。
+     */
     private String providerUsageFailureReason;
 
     /**

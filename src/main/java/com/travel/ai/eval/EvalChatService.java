@@ -190,6 +190,12 @@ public class EvalChatService {
         sb.append("app.eval.tool-timeout-ms=").append(appEvalProperties.getToolTimeoutMs()).append('\n');
         sb.append("app.eval.reflection-meta-enabled=").append(appEvalProperties.isReflectionMetaEnabled()).append('\n');
         sb.append("app.eval.stub-work-sleep-ms=").append(appEvalProperties.getStubWorkSleepMs()).append('\n');
+        sb.append("app.eval.llm-real-enabled=").append(appEvalProperties.isLlmRealEnabled()).append('\n');
+        sb.append("app.eval.llm-real-timeout-ms=").append(appEvalProperties.getLlmRealTimeoutMs()).append('\n');
+        sb.append("app.eval.llm-real-require-tag-match=").append(appEvalProperties.isLlmRealRequireTagMatch()).append('\n');
+        List<String> prefixSnap = new ArrayList<>(appEvalProperties.effectiveLlmRealRequiredTagPrefixes());
+        Collections.sort(prefixSnap);
+        sb.append("app.eval.llm-real-required-tag-prefixes=").append(String.join(",", prefixSnap)).append('\n');
         return sb.toString();
     }
 
@@ -519,6 +525,15 @@ public class EvalChatService {
         String mode = request.getLlmMode();
         boolean wantReal = mode != null && mode.trim().equalsIgnoreCase("real");
         if (!wantReal || !appEvalProperties.isLlmRealEnabled()) {
+            return;
+        }
+        String tagFail = EvalLlmRealTagPolicy.tagGateFailureReasonOrNull(
+                appEvalProperties.isLlmRealRequireTagMatch(),
+                appEvalProperties.effectiveLlmRealRequiredTagPrefixes(),
+                request.getEvalTags());
+        if (tagFail != null) {
+            meta.setProviderUsageAvailable(false);
+            meta.setProviderUsageFailureReason(tagFail);
             return;
         }
         ChatClient client = evalUsageChatClient.getIfAvailable();

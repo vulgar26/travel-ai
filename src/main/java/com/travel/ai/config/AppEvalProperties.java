@@ -2,6 +2,10 @@ package com.travel.ai.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+
 /**
  * 评测专用配置（{@code app.eval.*}），与 {@link AppAgentProperties}（{@code app.agent.*}）分离，避免键前缀混用。
  * <p>
@@ -33,6 +37,19 @@ public class AppEvalProperties {
      * 默认较小，避免“为了拿 usage”拖慢整段评测；设为 0 表示禁用额外上限（不推荐）。
      */
     private long llmRealTimeoutMs = 1200L;
+
+    /**
+     * 是否在 {@code llm_mode=real} 且服务端允许时，要求请求体 {@code eval_tags} 至少命中一条
+     * {@link #llmRealRequiredTagPrefixes} 前缀后才触发 usage 探针。\n
+     * 默认 true：避免跑批时每行都触发外网调用；评测平台可对抽样行打 {@code cost/...} 类 tag。
+     */
+    private boolean llmRealRequireTagMatch = true;
+
+    /**
+     * 与 {@link #llmRealRequireTagMatch} 联用：允许触发 real usage 探针的 eval 标签前缀（任一 tag 以任一前缀开头即通过）。\n
+     * 未配置或过滤后为空时，默认仅 {@code cost/}（与成本/用量抽样 harness 对齐）。
+     */
+    private List<String> llmRealRequiredTagPrefixes;
 
     public String getGatewayKey() {
         return gatewayKey != null ? gatewayKey : "";
@@ -80,5 +97,39 @@ public class AppEvalProperties {
 
     public void setLlmRealTimeoutMs(long llmRealTimeoutMs) {
         this.llmRealTimeoutMs = llmRealTimeoutMs;
+    }
+
+    public boolean isLlmRealRequireTagMatch() {
+        return llmRealRequireTagMatch;
+    }
+
+    public void setLlmRealRequireTagMatch(boolean llmRealRequireTagMatch) {
+        this.llmRealRequireTagMatch = llmRealRequireTagMatch;
+    }
+
+    public List<String> getLlmRealRequiredTagPrefixes() {
+        return llmRealRequiredTagPrefixes;
+    }
+
+    public void setLlmRealRequiredTagPrefixes(List<String> llmRealRequiredTagPrefixes) {
+        this.llmRealRequiredTagPrefixes = llmRealRequiredTagPrefixes;
+    }
+
+    /**
+     * {@link #llmRealRequireTagMatch} 为 false 时返回空列表（表示不做前缀门禁）；否则返回非空前缀列表（含默认 {@code cost/}）。
+     */
+    public List<String> effectiveLlmRealRequiredTagPrefixes() {
+        if (!llmRealRequireTagMatch) {
+            return List.of();
+        }
+        if (llmRealRequiredTagPrefixes == null || llmRealRequiredTagPrefixes.isEmpty()) {
+            return List.of("cost/");
+        }
+        List<String> cleaned = llmRealRequiredTagPrefixes.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
+        return cleaned.isEmpty() ? List.of("cost/") : Collections.unmodifiableList(cleaned);
     }
 }

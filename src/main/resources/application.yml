@@ -133,6 +133,11 @@ app:
     stub-work-sleep-ms: 0
     # 是否在 eval 响应 meta 中写入 recovery_action（及场景下的 self_check）；false 便于与旧 harness 严格 JSON 对照
     reflection-meta-enabled: true
+    # llm_mode=real 时是否要求 eval_tags 命中前缀后才触发 usage 探针（默认 true，避免跑批全量计费）
+    llm-real-require-tag-match: true
+    # 与上一项联用：任一 eval_tag 以列表中任一前缀开头则允许探针；省略时默认仅 cost/
+    # llm-real-required-tag-prefixes:
+    #   - cost/
   agent:
     plan-stage:
       # 主线 PLAN 是否调用 LLM 产出 JSON（集成测试默认关，见 application-test.yml）
