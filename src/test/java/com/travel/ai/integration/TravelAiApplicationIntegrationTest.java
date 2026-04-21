@@ -243,4 +243,40 @@ class TravelAiApplicationIntegrationTest {
                 .contains("resume_exhausted");
         jdbcTemplate.update("DELETE FROM eval_conversation_checkpoint WHERE conversation_id = ?", conv);
     }
+
+    @Test
+    void evalCheckpointPersistsToolSnapshotWhenEvalToolScenarioProvided() {
+        String planNoRetrieve = """
+                {
+                  "plan_version": "v1",
+                  "goal": "integration checkpoint tool snapshot",
+                  "steps": [
+                    { "step_id": "s1", "stage": "TOOL", "instruction": "tool." },
+                    { "step_id": "s2", "stage": "GUARD", "instruction": "guard." },
+                    { "step_id": "s3", "stage": "WRITE", "instruction": "write." }
+                  ],
+                  "constraints": { "max_steps": 8, "total_timeout_ms": 60000, "tool_timeout_ms": 10000 }
+                }
+                """;
+        String conv = "it-ckpt-tool-" + UUID.randomUUID();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-Eval-Gateway-Key", "it-eval-gateway-key");
+        String body = "{\"query\":\"tool-snapshot-integration-query-extra\",\"mode\":\"EVAL\",\"conversation_id\":\""
+                + conv + "\",\"plan_raw\":" + objectMapper.writeValueAsString(planNoRetrieve)
+                + ",\"eval_tool_scenario\":\"success\"}";
+        restTemplate.postForEntity("/api/v1/eval/chat", new HttpEntity<>(body, headers), String.class);
+
+        String toolOutcome = jdbcTemplate.queryForObject(
+                "SELECT detail->>'tool_outcome' FROM eval_conversation_checkpoint WHERE conversation_id = ?",
+                String.class,
+                conv);
+        assertThat(toolOutcome).isNotBlank();
+        String toolScenario = jdbcTemplate.queryForObject(
+                "SELECT detail->>'eval_tool_scenario' FROM eval_conversation_checkpoint WHERE conversation_id = ?",
+                String.class,
+                conv);
+        assertThat(toolScenario).isEqualTo("success");
+        jdbcTemplate.update("DELETE FROM eval_conversation_checkpoint WHERE conversation_id = ?", conv);
+    }
 }

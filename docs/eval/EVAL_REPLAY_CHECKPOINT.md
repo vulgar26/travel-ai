@@ -23,7 +23,7 @@
 | **`last_completed_stage`** | 最近一次**已完整结束**的线性阶段名（如 `PLAN`、`RETRIEVE`），与 `meta.stage_order` 大写枚举一致（取 `stage_order` 最后一项）。 |
 | **`stage_index`** | 数值游标（0～32）：当前为 **`stage_order.size() - 1`**（与最后一阶段下标一致）。 |
 | **`config_snapshot_hash`** | 可选；与评测 `meta.config_snapshot_hash` 同源时写入。 |
-| **`detail`** | JSONB：当前写入 **`request_id`**、**`behavior`**、可选 **`error_code`**（**不含** query 原文），以及用于证据复用的 `query_sha256` 与 `evidence_*` 快照。 |
+| **`detail`** | JSONB：当前写入 **`request_id`**、**`behavior`**、可选 **`error_code`**（**不含** query 原文），以及用于复用的 `query_sha256`、`evidence_*`（检索快照）与 `tool_*` / `eval_tool_scenario`（工具快照）。 |
 | **`created_at` / `updated_at`** | 首次写入与最后更新时间。 |
 
 **索引**：`plan_raw_sha256`、`updated_at DESC` —— 支持按指纹排查、按时间扫尾。
@@ -44,7 +44,8 @@
 2. ~~**评测路径写库**~~：**已完成**（`maybePersistEvalCheckpoint`；`app.eval.checkpoint-persistence-enabled`）。  
 3. **回放契约**：请求体带 `conversation_id` 时，服务端校验 **`plan_raw` 哈希与库中一致**；若断点显示已结束则返回 `EVAL_CHECKPOINT_RESUMED_EXHAUSTED`；若哈希不一致返回 `EVAL_CHECKPOINT_PLAN_MISMATCH`。  
 4. **证据复用（已落地）**：同一 `conversation_id` 下再次请求时，若 `sha256(query)` 与断点行 `detail.query_sha256` 一致，且 `detail.evidence_sources/hits` 存在，则直接复用，不再调用向量检索。  
-5. **主线 SSE**：若产品需要「刷新后续航」，再评估是否共用本表或拆 `agent_conversation_checkpoint`。
+5. **工具复用（已落地）**：同一 `conversation_id` 下再次请求时，若 `sha256(query)` 匹配且 `eval_tool_scenario` 相同，且 `detail.tool_*` 快照齐全，则直接复用 TOOL 结果，不再重复执行工具阶段。  
+6. **主线 SSE**：若产品需要「刷新后续航」，再评估是否共用本表或拆 `agent_conversation_checkpoint`。
 
 ---
 

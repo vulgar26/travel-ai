@@ -536,6 +536,14 @@ public class EvalChatService {
         AtomicReference<EvalToolStageRunner.EvalToolInvocationResult> toolSlot = new AtomicReference<>();
         int resumeIdx = checkpointResumeLastInclusiveIndex == null ? -1 : checkpointResumeLastInclusiveIndex;
         List<String> stageOrder = EvalLinearAgentPipeline.runStubStagesResumingAfterIndex(request, physical, resumeIdx, () -> {
+            if (toolSlot.get() != null) {
+                return;
+            }
+            EvalToolStageRunner.EvalToolInvocationResult reused = tryReuseToolFromCheckpoint(matchedCheckpointRow, request);
+            if (reused != null) {
+                toolSlot.set(reused);
+                return;
+            }
             EvalToolStageRunner.EvalToolInvocationResult r = evalToolStageRunner.invoke(request);
             if (r != null) {
                 toolSlot.set(r);
@@ -743,6 +751,28 @@ public class EvalChatService {
             }
             if (evidence.retrievalQueryLineTruncated()) {
                 detail.put("retrieval_query_line_truncated", true);
+            }
+        }
+        // 工具快照：用于在同一 query + eval_tool_scenario 下复用 TOOL 结果（避免重复 stub/外部调用）。
+        if (request.getEvalToolScenario() != null && !request.getEvalToolScenario().isBlank()) {
+            detail.put("eval_tool_scenario", request.getEvalToolScenario().trim());
+        }
+        if (response.getTool() != null) {
+            detail.put("tool_used", response.getTool().getUsed());
+            detail.put("tool_name", response.getTool().getName());
+            detail.put("tool_outcome", response.getTool().getOutcome());
+            detail.put("tool_succeeded", response.getTool().getSucceeded());
+            if (meta.getToolLatencyMs() != null) {
+                detail.put("tool_latency_ms", meta.getToolLatencyMs());
+            }
+            if (Boolean.TRUE.equals(meta.getToolDisabledByCircuitBreaker())) {
+                detail.put("tool_disabled_by_circuit_breaker", true);
+            }
+            if (Boolean.TRUE.equals(meta.getToolRateLimited())) {
+                detail.put("tool_rate_limited", true);
+            }
+            if (Boolean.TRUE.equals(meta.getToolOutputTruncated())) {
+                detail.put("tool_output_truncated", true);
             }
         }
         try {
@@ -1052,6 +1082,76 @@ public class EvalChatService {
             return n.intValue() != 0;
         }
         return false;
+    }
+
+    private EvalToolStageRunner.EvalToolInvocationResult tryReuseToolFromCheckpoint(EvalCheckpointRow row, EvalChatRequest request) {
+        if (row == null || request == null) {
+            return null;
+        }
+        if (request.getQuery() == null || request.getQuery().isBlank()) {
+            return null;
+        }
+        String scenarioNow = request.getEvalToolScenario();
+        if (scenarioNow == null || scenarioNow.isBlank()) {
+            return null;
+        }
+        Map<String, Object> d = row.detail();
+        if (d == null || d.isEmpty()) {
+            return null;
+        }
+        Object qh = d.get("query_sha256");
+        if (!(qh instanceof String storedHash) || storedHash.isBlank()) {
+            return null;
+        }
+        String now = sha256Hex(request.getQuery().trim());
+        if (!storedHash.trim().equalsIgnoreCase(now)) {
+            return null;
+        }
+        Object sc = d.get("eval_tool_scenario");
+        if (!(sc instanceof String storedScenario) || storedScenario.isBlank()) {
+            return null;
+        }
+        if (!storedScenario.trim().equalsIgnoreCase(scenarioNow.trim())) {
+            return null;
+        }
+        boolean used = boolFromDetail(d.get("tool_used"));
+        Object nameRaw = d.get("tool_name");
+        Object outcomeRaw = d.get("tool_outcome");
+        if (nameRaw == null || outcomeRaw == null) {
+            return null;
+        }
+        String name = String.valueOf(nameRaw);
+        String outcome = String.valueOf(outcomeRaw);
+        long latencyMs = 0L;
+        Object lm = d.get("tool_latency_ms");
+        if (lm instanceof Number n) {
+            latencyMs = n.longValue();
+        } else if (lm instanceof String s) {
+            try {
+                latencyMs = Long.parseLong(s.trim());
+            } catch (Exception ignored) {
+                latencyMs = 0L;
+            }
+        }
+        EvalToolStageRunner.EvalToolInvocationResult.Kind kind = kindFromOutcome(outcome);
+        Boolean cb = boolFromDetail(d.get("tool_disabled_by_circuit_breaker")) ? Boolean.TRUE : null;
+        Boolean rl = boolFromDetail(d.get("tool_rate_limited")) ? Boolean.TRUE : null;
+        Boolean tr = boolFromDetail(d.get("tool_output_truncated")) ? Boolean.TRUE : null;
+        return new EvalToolStageRunner.EvalToolInvocationResult(used, name, outcome, kind, latencyMs, cb, rl, tr);
+    }
+
+    private static EvalToolStageRunner.EvalToolInvocationResult.Kind kindFromOutcome(String outcome) {
+        if (outcome == null) {
+            return EvalToolStageRunner.EvalToolInvocationResult.Kind.OK;
+        }
+        String o = outcome.trim().toLowerCase(java.util.Locale.ROOT);
+        return switch (o) {
+            case EvalToolStageRunner.OUTCOME_TIMEOUT -> EvalToolStageRunner.EvalToolInvocationResult.Kind.TIMEOUT;
+            case EvalToolStageRunner.OUTCOME_ERROR -> EvalToolStageRunner.EvalToolInvocationResult.Kind.ERROR;
+            case EvalToolStageRunner.OUTCOME_DISABLED_BY_CIRCUIT_BREAKER -> EvalToolStageRunner.EvalToolInvocationResult.Kind.CIRCUIT_BREAKER;
+            case EvalToolStageRunner.OUTCOME_RATE_LIMITED -> EvalToolStageRunner.EvalToolInvocationResult.Kind.RATE_LIMITED;
+            default -> EvalToolStageRunner.EvalToolInvocationResult.Kind.OK;
+        };
     }
 
     private record DedupedSlice(List<Document> docs, int totalUnique) {
