@@ -29,7 +29,11 @@ public class EvalChatRequest {
     /** 可选：AGENT / BASELINE / RAG 等，由评测集或调用方指定。 */
     private String mode;
 
-    /** 可选：会话 id，P0 默认每 case 独立会话时可由 eval 传入。 */
+    /**
+     * 可选：会话 id，P0 默认每 case 独立会话时可由 eval 传入。
+     * <p>
+     * 非空且 {@code app.eval.checkpoint-persistence-enabled=true} 时，服务端在 plan 解析成功后会 UPSERT {@code eval_conversation_checkpoint}（见 {@link com.travel.ai.eval.EvalChatService}）。
+     */
     private String conversationId;
 
     /**

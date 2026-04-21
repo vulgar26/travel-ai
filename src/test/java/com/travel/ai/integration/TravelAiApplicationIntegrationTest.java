@@ -14,12 +14,12 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.test.context.ActiveProfiles;
+
+import java.util.UUID;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
-
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -33,19 +33,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("test")
 class TravelAiApplicationIntegrationTest {
 
-    private static final DockerImageName PGVECTOR =
-            DockerImageName.parse("pgvector/pgvector:pg16").asCompatibleSubstituteFor("postgres");
-
     @Container
     @ServiceConnection
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PGVECTOR)
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(IntegrationTestImages.postgresPgvector())
             .withDatabaseName("ragent")
             .withUsername("postgres")
             .withPassword("postgres");
 
     @Container
     @ServiceConnection
-    static GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:7-alpine"))
+    static GenericContainer<?> redis = new GenericContainer<>(IntegrationTestImages.redis())
             .withExposedPorts(6379);
 
     @Autowired
@@ -73,6 +70,11 @@ class TravelAiApplicationIntegrationTest {
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'vector_store'",
                 Integer.class);
         assertThat(tables).isEqualTo(1);
+
+        Integer ckpt = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'eval_conversation_checkpoint'",
+                Integer.class);
+        assertThat(ckpt).isEqualTo(1);
     }
 
     @Test
@@ -111,6 +113,9 @@ class TravelAiApplicationIntegrationTest {
     void travelChatWithoutTokenReturns401() {
         ResponseEntity<String> res = restTemplate.getForEntity("/travel/chat/c1?query=hi", String.class);
         assertThat(res.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(res.getHeaders().getContentType()).isNotNull();
+        assertThat(res.getHeaders().getContentType().toString()).contains("application/json");
+        assertThat(res.getBody()).isNotNull().contains("\"error\"").contains("UNAUTHORIZED");
     }
 
     @Test
@@ -138,5 +143,26 @@ class TravelAiApplicationIntegrationTest {
 
         assertThat(res.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(res.getBody()).isNotNull().contains("\"behavior\"");
+    }
+
+    @Test
+    void evalChatUpsertsCheckpointWhenConversationIdProvided() {
+        String conv = "it-ckpt-" + UUID.randomUUID();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-Eval-Gateway-Key", "it-eval-gateway-key");
+        String q = "it-eval-ckpt-query-" + UUID.randomUUID();
+        String body = "{\"query\":\"" + q + "\",\"mode\":\"EVAL\",\"conversation_id\":\"" + conv + "\"}";
+        HttpEntity<String> entity = new HttpEntity<>(body, headers);
+
+        ResponseEntity<String> res = restTemplate.postForEntity("/api/v1/eval/chat", entity, String.class);
+
+        assertThat(res.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String lastStage = jdbcTemplate.queryForObject(
+                "SELECT last_completed_stage FROM eval_conversation_checkpoint WHERE conversation_id = ?",
+                String.class,
+                conv);
+        assertThat(lastStage).isNotBlank();
+        jdbcTemplate.update("DELETE FROM eval_conversation_checkpoint WHERE conversation_id = ?", conv);
     }
 }

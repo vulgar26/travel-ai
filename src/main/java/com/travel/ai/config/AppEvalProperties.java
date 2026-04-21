@@ -57,6 +57,12 @@ public class AppEvalProperties {
      */
     private boolean configSnapshotMetaEnabled = false;
 
+    /**
+     * 是否在评测成功组装响应后写入 {@code eval_conversation_checkpoint}（须请求体带非空 {@code conversation_id} 且 plan 已解析）。\n
+     * 默认 {@code true}；写库失败仅打日志，不影响 eval HTTP。切片测试无 DataSource 时无 Repository Bean，自然跳过。
+     */
+    private boolean checkpointPersistenceEnabled = true;
+
     public String getGatewayKey() {
         return gatewayKey != null ? gatewayKey : "";
     }
@@ -145,5 +151,13 @@ public class AppEvalProperties {
 
     public void setConfigSnapshotMetaEnabled(boolean configSnapshotMetaEnabled) {
         this.configSnapshotMetaEnabled = configSnapshotMetaEnabled;
+    }
+
+    public boolean isCheckpointPersistenceEnabled() {
+        return checkpointPersistenceEnabled;
+    }
+
+    public void setCheckpointPersistenceEnabled(boolean checkpointPersistenceEnabled) {
+        this.checkpointPersistenceEnabled = checkpointPersistenceEnabled;
     }
 }

@@ -39,6 +39,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -87,6 +88,7 @@ public class EvalChatService {
     private final ObjectProvider<ChatClient> evalUsageChatClient;
     private final AppAgentProperties appAgentProperties;
     private final AppEvalProperties appEvalProperties;
+    private final ObjectProvider<EvalCheckpointRepository> evalCheckpointRepository;
 
     public EvalChatService(
             PlanParseCoordinator planParseCoordinator,
@@ -96,6 +98,7 @@ public class EvalChatService {
             ObjectProvider<VectorStore> vectorStore,
             AppAgentProperties appAgentProperties,
             AppEvalProperties appEvalProperties,
+            ObjectProvider<EvalCheckpointRepository> evalCheckpointRepository,
             @org.springframework.beans.factory.annotation.Qualifier("evalUsageChatClient") ObjectProvider<ChatClient> evalUsageChatClient
     ) {
         this.planParseCoordinator = planParseCoordinator;
@@ -105,6 +108,7 @@ public class EvalChatService {
         this.vectorStore = vectorStore;
         this.appAgentProperties = appAgentProperties;
         this.appEvalProperties = appEvalProperties;
+        this.evalCheckpointRepository = evalCheckpointRepository;
         this.evalUsageChatClient = evalUsageChatClient;
     }
 
@@ -354,6 +358,7 @@ public class EvalChatService {
             return complete(response, request, membershipCtx, emptyEvidence());
         }
         PlanPhysicalStagePolicy.PhysicalStageFlags physical = PlanPhysicalStagePolicy.resolve(planV1);
+        final String planJsonForCheckpoint = parseResult.effectivePlanJson();
 
         // Day10/S1：仅在 plan 声明 RETRIEVE 时拉取向量证据（与主线按 steps 物理跳过对齐）。
         Evidence evidence = physical.runRetrieve()
@@ -379,7 +384,7 @@ public class EvalChatService {
             }
             response.setAnswer(d.answer());
             appendPolicyEvent(meta, "query_safety", "post_plan", d.behavior(), firstPolicyRuleFromReasons(d.reasons()), d.errorCode());
-            return complete(response, request, membershipCtx, evidence);
+            return complete(response, request, membershipCtx, evidence, planJsonForCheckpoint);
         }
 
         // P0+ S2：确定性行为策略（tool/clarify），用于收敛典型 BEHAVIOR_MISMATCH。
@@ -415,7 +420,7 @@ public class EvalChatService {
                     meta.setToolOutcome(EvalToolStageRunner.OUTCOME_OK);
                 }
                 response.setAnswer(decision.answer());
-                return complete(response, request, membershipCtx, evidence);
+                return complete(response, request, membershipCtx, evidence, planJsonForCheckpoint);
             }
         }
 
@@ -430,7 +435,7 @@ public class EvalChatService {
             response.setAnswer("检索零命中：请补充关键词/范围/上下文，或提供可引用资料后再继续。");
             appendPolicyEvent(meta, "rag_gate", "post_retrieve", "clarify", "business_empty_hits",
                     EvalRagGateScenarios.ERROR_CODE_RETRIEVE_EMPTY);
-            return complete(response, request, membershipCtx, evidence);
+            return complete(response, request, membershipCtx, evidence, planJsonForCheckpoint);
         }
 
         // 业务侧“低置信”兜底门控：短 query / 指代不明 等，避免同类输入漂移到 answer。
@@ -446,7 +451,7 @@ public class EvalChatService {
             response.setAnswer("信息不足或指代不明：请补充目的地/日期/偏好，或说明你指的是哪个对象/项目。");
             appendPolicyEvent(meta, "rag_gate", "post_retrieve", "clarify", "business_low_confidence_heuristic",
                     EvalRagGateScenarios.ERROR_CODE_RETRIEVE_LOW_CONFIDENCE);
-            return complete(response, request, membershipCtx, evidence);
+            return complete(response, request, membershipCtx, evidence, planJsonForCheckpoint);
         }
 
         Kind ragKind = physical.runRetrieve() ? EvalRagGateScenarios.resolve(request) : null;
@@ -469,7 +474,7 @@ public class EvalChatService {
                         EvalRagGateScenarios.ERROR_CODE_RETRIEVE_LOW_CONFIDENCE);
             }
             response.setBehavior("clarify");
-            return complete(response, request, membershipCtx, evidence);
+            return complete(response, request, membershipCtx, evidence, planJsonForCheckpoint);
         }
 
         AtomicReference<EvalToolStageRunner.EvalToolInvocationResult> toolSlot = new AtomicReference<>();
@@ -533,12 +538,12 @@ public class EvalChatService {
                 }
             }
             appendPolicyEvent(meta, "tool_stage", "tool", response.getBehavior(), inv.outcome(), response.getErrorCode());
-            return complete(response, request, membershipCtx, evidence);
+            return complete(response, request, membershipCtx, evidence, planJsonForCheckpoint);
         }
 
         response.setAnswer("Day3：meta 可观测稳定（stage_order / step_count / replan_count=0）；阶段仍为占位执行。");
         response.setBehavior("answer");
-        return complete(response, request, membershipCtx, evidence);
+        return complete(response, request, membershipCtx, evidence, planJsonForCheckpoint);
     }
 
     private static String firstPolicyRuleFromReasons(List<String> reasons) {
@@ -589,12 +594,86 @@ public class EvalChatService {
             EvalMembershipHttpContext membershipCtx,
             Evidence evidence
     ) {
+        return complete(response, request, membershipCtx, evidence, null);
+    }
+
+    private EvalChatResponse complete(
+            EvalChatResponse response,
+            EvalChatRequest request,
+            EvalMembershipHttpContext membershipCtx,
+            Evidence evidence,
+            String effectivePlanJsonForCheckpoint
+    ) {
         stampContextTruncationOnMeta(response.getMeta(), evidence);
         stampContextSizeEstimatesOnMeta(response.getMeta(), request, evidence);
         maybeAttachProviderTokenUsage(response.getMeta(), request);
         EvalReflectionSupport.apply(response, request, appEvalProperties.isReflectionMetaEnabled());
         attachRetrievalMembershipMeta(response.getMeta(), response, membershipCtx, evidence);
+        maybePersistEvalCheckpoint(request, response, effectivePlanJsonForCheckpoint);
         return response;
+    }
+
+    private void maybePersistEvalCheckpoint(
+            EvalChatRequest request,
+            EvalChatResponse response,
+            String effectivePlanJsonUtf8
+    ) {
+        if (!appEvalProperties.isCheckpointPersistenceEnabled()) {
+            return;
+        }
+        EvalCheckpointRepository repo = evalCheckpointRepository.getIfAvailable();
+        if (repo == null || request == null || response == null || response.getMeta() == null) {
+            return;
+        }
+        String conv = request.getConversationId();
+        if (conv == null || conv.isBlank()) {
+            return;
+        }
+        if (conv.length() > 128) {
+            log.warn("[eval] checkpoint_skipped conversation_id_too_long len={}", conv.length());
+            return;
+        }
+        if (effectivePlanJsonUtf8 == null || effectivePlanJsonUtf8.isBlank()) {
+            return;
+        }
+        EvalChatMeta meta = response.getMeta();
+        List<String> order = meta.getStageOrder();
+        if (order == null || order.isEmpty()) {
+            return;
+        }
+        String planHash = sha256Hex(effectivePlanJsonUtf8);
+        if (planHash.length() != 64) {
+            return;
+        }
+        String lastStage = order.get(order.size() - 1);
+        if (lastStage == null || lastStage.isBlank()) {
+            return;
+        }
+        if (lastStage.length() > 32) {
+            log.warn("[eval] checkpoint_skipped last_stage_too_long");
+            return;
+        }
+        int stageIndex = Math.min(order.size() - 1, 32);
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("request_id", meta.getRequestId());
+        if (response.getBehavior() != null) {
+            detail.put("behavior", response.getBehavior());
+        }
+        if (response.getErrorCode() != null && !response.getErrorCode().isBlank()) {
+            detail.put("error_code", response.getErrorCode());
+        }
+        try {
+            repo.upsert(
+                    conv,
+                    planHash,
+                    lastStage,
+                    stageIndex,
+                    meta.getConfigSnapshotHash(),
+                    detail
+            );
+        } catch (Exception e) {
+            log.warn("[eval] checkpoint_persist_failed conversationId={} err={}", conv, e.toString());
+        }
     }
 
     private void maybeAttachProviderTokenUsage(EvalChatMeta meta, EvalChatRequest request) {

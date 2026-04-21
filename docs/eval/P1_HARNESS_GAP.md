@@ -38,7 +38,7 @@
 | **`config_snapshot_json` / `config_snapshot_id`** | **已做**：`meta.config_snapshot_hash`（含 `alg/scope`）+ **`meta.config_snapshot_id`**（稳定引用，形如 `travel-ai:config-snapshot/v1/sha256/<hash>`，与 hash 一一对应）；当 **`app.eval.config-snapshot-meta-enabled=true`** 时另写入 **`meta.config_snapshot`** 明文键值（默认 **false** 防 meta 膨胀） | 后续：请求体回显校验、或外存 blob 与 id 解耦后再扩展 |
 | **统一 `context_truncated`**（历史 / 检索 / 工具块总预算） | **已做（评测路径）**：`meta.context_truncated` + `meta.context_truncation_reasons[]` 覆盖 `sources_snippet_truncated`、`tool_output_truncated`、**`retrieval_candidates_capped`**（去重后命中数大于 `retrieval_candidate_limit_n`）、**`retrieval_query_line_truncated`**（非 `EVAL` 模式下 `QueryRewriter` 单行超长截断） | 后续：历史多轮记忆截断、主线 promptBase 等（与评测口解耦或另开字段） |
 | **显式 token 计数**（`prompt_tokens` 等） | **组合模式落地**：默认离线近似（`meta.context_*` + `token_source=estimate`）；当请求 `llm_mode=real` 且服务端 `app.eval.llm-real-enabled=true` 时，评测口触发一次真实 LLM 调用并 best-effort 写入 `meta.prompt_tokens/completion_tokens/total_tokens`（`token_source=provider`）。默认还要求请求体 `eval_tags` 命中配置前缀（默认 `cost/`，见 `app.eval.llm-real-require-tag-match` / `llm-real-required-tag-prefixes`），否则跳过探针并写 `provider_usage_failure_reason=tag_gate_no_tags|tag_gate_no_match`。另：`meta.provider_usage_available` / `timeout|no_usage|error|no_client` 等。主产品（SSE）也会在日志输出 `[usage]`（反射提取，失败则回退估算）。 | **已定稿**：跑法/成本/合规见 [**`LLM_REAL_USAGE_RUNBOOK.md`**](LLM_REAL_USAGE_RUNBOOK.md) |
-| **回放 / 断点恢复**（`plan_raw_hash`、按 `conversationId` 恢复 stage） | **Schema 已落**（Flyway **`V3__eval_replay_checkpoint.sql`**，表 **`eval_conversation_checkpoint`**）；**应用层未**接（无 Repository / 评测写路径） | 下一小步：`EvalCheckpointRepository` + `EvalChatService` 稳定点 UPSERT；说明见 [**`EVAL_REPLAY_CHECKPOINT.md`**](EVAL_REPLAY_CHECKPOINT.md) |
+| **回放 / 断点恢复**（`plan_raw_hash`、按 `conversationId` 恢复 stage） | **Schema + 写路径已落**：Flyway V3；**`EvalCheckpointRepository`**；`EvalChatService` 在 **`conversation_id` 非空**且 plan 已解析时 **UPSERT**（`app.eval.checkpoint-persistence-enabled`，失败只打日志） | 下一小步：**读路径 / 续跑校验**（`plan_raw` 哈希与库一致后再从下一阶段接着跑）；说明见 [**`EVAL_REPLAY_CHECKPOINT.md`**](EVAL_REPLAY_CHECKPOINT.md) |
 | **`hop_trace[]` / multi-hop** | **未**做 | 属 P1-4b，与 harness 正交 |
 | **DevLog / `policy_id` 决策事件库** | 部分能力由 **`eval_safety_rule_id`**、**`low_confidence_reasons`** 承担；另已追加 **`meta.policy_events[]`**（结构化、无敏感原文；覆盖 SafetyGate / QuerySafety / BehaviorPolicy / RAG 门控 / TOOL 阶段归因） | 后续：如需与外部 DevLog id 强绑定，再引入 `policy_id` 或外存引用 |
 
@@ -54,6 +54,7 @@
 6. **`meta.policy_events[]`**：SafetyGate / QuerySafety / BehaviorPolicy / RAG 门控 / TOOL 阶段等短路点写入结构化事件 —— **已完成**（见 `EvalChatPolicyEventsMvcTest`）。  
 7. **`meta.config_snapshot_id`**：与 `config_snapshot_hash` 同源、带版本前缀的稳定字符串 id —— **已完成**（契约见 `EvalChatControllerTest#metaConfigSnapshotHash_presentAndStableFields`）。  
 8. **`context_truncation_reasons` 扩展（检索）**：候选条数上限、改写单行截断 —— **已完成**（`QueryRewriter#rewriteWithOutcome` + `EvalChatService#stampContextTruncationOnMeta`）。  
-9. **回放断点表结构**：Flyway V3 + 设计说明 —— **已完成（仅 schema + 文档）**（见 **`docs/eval/EVAL_REPLAY_CHECKPOINT.md`**）。
+9. **回放断点表结构**：Flyway V3 + 设计说明 —— **已完成（仅 schema + 文档）**（见 **`docs/eval/EVAL_REPLAY_CHECKPOINT.md`**）。  
+10. **回放断点写库**：`EvalCheckpointRepository` + `EvalChatService` UPSERT —— **已完成**（集成测 `TravelAiApplicationIntegrationTest#evalChatUpsertsCheckpointWhenConversationIdProvided`）。
 
 每步单独 PR：便于 `EvalChatControllerTest` 与 `run.report` 回归。

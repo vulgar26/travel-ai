@@ -142,6 +142,8 @@ app:
     #   - cost/
     # 是否在 meta 中额外写入 config_snapshot 对象（与 config_snapshot_hash 同源白名单；默认 false）
     config-snapshot-meta-enabled: false
+    # 是否在带 conversation_id 的评测请求结束时 UPSERT eval_conversation_checkpoint（默认 true；失败只打日志）
+    checkpoint-persistence-enabled: true
   agent:
     plan-stage:
       # 主线 PLAN 是否调用 LLM 产出 JSON（集成测试默认关，见 application-test.yml）

@@ -167,6 +167,7 @@ npm run dev
 | `app.eval.llm-real-require-tag-match` | 为 **true**（默认）时：仅当请求体 `eval_tags` 中至少一条以 `app.eval.llm-real-required-tag-prefixes` 某一前缀开头时才触发探针；避免跑批全量计费 |
 | `app.eval.llm-real-required-tag-prefixes` | 与上一项联用的前缀列表（YAML 数组）；省略时默认仅 `cost/`（评测平台可对抽样行打 `cost/...` 类 tag） |
 | `app.eval.config-snapshot-meta-enabled` | 为 **true** 时在评测响应 **`meta.config_snapshot`** 中写入与 **`config_snapshot_hash`** 同源的键值对象（字符串值）；默认 **false** |
+| `app.eval.checkpoint-persistence-enabled` | 为 **true**（默认）时：评测请求带非空 **`conversation_id`** 且 plan 已解析则 UPSERT **`eval_conversation_checkpoint`**；写库失败只打日志；无 JdbcTemplate 的切片测试自动跳过 |
 
 评测 **`meta.config_snapshot_id`**：与 **`config_snapshot_hash`** 同时出现，形如 `travel-ai:config-snapshot/v1/sha256/<64位hex>`，给报表/外存一个稳定主键名（内容仍由 hash 指纹）。
 

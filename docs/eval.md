@@ -10,7 +10,7 @@
 - **P0 数值门槛（eval 批跑）**：与手工表互补，见 [`eval/P0_THRESHOLD_RUNBOOK.md`](eval/P0_THRESHOLD_RUNBOOK.md)（`run.report` 聚合与 SSOT 比例核对）。
 - **`sources[]` vs SSE 引用块**：评测 JSON 与首包纯文本的**同源差异**见 [`eval/SOURCES_EVAL_VS_SSE.md`](SOURCES_EVAL_VS_SSE.md)。
 - **P1-0 harness 缺口与分步路线**：[`eval/P1_HARNESS_GAP.md`](P1_HARNESS_GAP.md)（`EvalChatMeta` 已具备字段 vs SSOT 仍缺项）。**`meta.config_snapshot_id`** 与 **`config_snapshot_hash`** 同源；可选 **`meta.config_snapshot`** 见 **`app.eval.config-snapshot-meta-enabled`**（`README`）。**`context_truncation_reasons`** 含 **`retrieval_candidates_capped`**、**`retrieval_query_line_truncated`**（非 `EVAL` 改写）等，见同文件 §2。  
-- **回放 / 断点（schema 先行）**：[`eval/EVAL_REPLAY_CHECKPOINT.md`](eval/EVAL_REPLAY_CHECKPOINT.md)（Flyway **`V3__eval_replay_checkpoint.sql`**；应用写入待下一小步）。  
+- **回放 / 断点**：[`eval/EVAL_REPLAY_CHECKPOINT.md`](eval/EVAL_REPLAY_CHECKPOINT.md)（Flyway V3 + 带 **`conversation_id`** 时写库；**续跑读路径**仍待）。  
 - **可选：供应商 token 真值（`llm_mode=real`）**：何时开 **`app.eval.llm-real-enabled`**、**`eval_tags`** 抽样、`meta.provider_usage_*` 归因与合规，见 [`eval/LLM_REAL_USAGE_RUNBOOK.md`](eval/LLM_REAL_USAGE_RUNBOOK.md)。  
 - **CI 与远程全量 eval**：默认 GitHub Actions 跑 **`mvn test`**（含评测 MockMvc / 集成测）；与「对公网 target 跑整库」的分工见 [`eval/CI_AND_REMOTE_EVAL.md`](eval/CI_AND_REMOTE_EVAL.md)。
 
