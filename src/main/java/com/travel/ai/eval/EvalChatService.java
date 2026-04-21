@@ -719,7 +719,7 @@ public class EvalChatService {
         com.travel.ai.agent.QueryRewriter rewriter = queryRewriter.getIfAvailable();
         VectorStore vs = vectorStore.getIfAvailable();
         if (rewriter == null || vs == null) {
-            return new Evidence(List.of(), List.of(), 0, 0);
+            return new Evidence(List.of(), List.of(), 0, 0, false);
         }
 
         int topN = (xEvalMembershipTopN != null && xEvalMembershipTopN > 0) ? Math.min(50, xEvalMembershipTopN) : 8;
