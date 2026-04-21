@@ -1,6 +1,9 @@
 package com.travel.ai.integration;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.travel.ai.TravelAiApplication;
+import com.travel.ai.plan.PlanParseCoordinator;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -50,6 +53,9 @@ class TravelAiApplicationIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Autowired
     private StringRedisTemplate stringRedisTemplate;
@@ -163,6 +169,73 @@ class TravelAiApplicationIntegrationTest {
                 String.class,
                 conv);
         assertThat(lastStage).isNotBlank();
+        jdbcTemplate.update("DELETE FROM eval_conversation_checkpoint WHERE conversation_id = ?", conv);
+    }
+
+    @Test
+    void evalCheckpointPlanMismatchReturnsErrorCodeInBody() throws Exception {
+        String conv = "it-ckpt-mis-" + UUID.randomUUID();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-Eval-Gateway-Key", "it-eval-gateway-key");
+        restTemplate.postForEntity(
+                "/api/v1/eval/chat",
+                new HttpEntity<>("{\"query\":\"a\",\"mode\":\"EVAL\",\"conversation_id\":\"" + conv + "\"}", headers),
+                String.class);
+        String altPlan = PlanParseCoordinator.DEFAULT_EVAL_PLAN_JSON.replace(
+                "评测默认全阶段占位", "评测默认全阶段占位_MISMATCH");
+        String planRawField = objectMapper.writeValueAsString(altPlan);
+        String body2 = "{\"query\":\"b\",\"mode\":\"EVAL\",\"conversation_id\":\"" + conv + "\",\"plan_raw\":" + planRawField + "}";
+        ResponseEntity<String> res2 = restTemplate.postForEntity(
+                "/api/v1/eval/chat", new HttpEntity<>(body2, headers), String.class);
+        assertThat(res2.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(res2.getBody()).isNotNull()
+                .contains("EVAL_CHECKPOINT_PLAN_MISMATCH")
+                .contains("plan_mismatch");
+        jdbcTemplate.update("DELETE FROM eval_conversation_checkpoint WHERE conversation_id = ?", conv);
+    }
+
+    @Test
+    void evalCheckpointResumeExhaustedOnSecondFullPipelineRequest() throws Exception {
+        String planNoRetrieve = """
+                {
+                  "plan_version": "v1",
+                  "goal": "integration checkpoint without retrieve",
+                  "steps": [
+                    { "step_id": "s1", "stage": "TOOL", "instruction": "tool." },
+                    { "step_id": "s2", "stage": "GUARD", "instruction": "guard." },
+                    { "step_id": "s3", "stage": "WRITE", "instruction": "write." }
+                  ],
+                  "constraints": { "max_steps": 8, "total_timeout_ms": 60000, "tool_timeout_ms": 10000 }
+                }
+                """;
+        String conv = "it-ckpt-ex-" + UUID.randomUUID();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-Eval-Gateway-Key", "it-eval-gateway-key");
+        String q = "eval-cp-resume-exhausted-integration-query-extra";
+        ObjectNode body1 = objectMapper.createObjectNode();
+        body1.put("query", q);
+        body1.put("mode", "EVAL");
+        body1.put("conversation_id", conv);
+        body1.put("plan_raw", planNoRetrieve);
+        restTemplate.postForEntity(
+                "/api/v1/eval/chat",
+                new HttpEntity<>(objectMapper.writeValueAsString(body1), headers),
+                String.class);
+        ObjectNode body2 = objectMapper.createObjectNode();
+        body2.put("query", q);
+        body2.put("mode", "EVAL");
+        body2.put("conversation_id", conv);
+        body2.put("plan_raw", planNoRetrieve);
+        ResponseEntity<String> res2 = restTemplate.postForEntity(
+                "/api/v1/eval/chat",
+                new HttpEntity<>(objectMapper.writeValueAsString(body2), headers),
+                String.class);
+        assertThat(res2.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(res2.getBody()).isNotNull()
+                .contains("EVAL_CHECKPOINT_RESUMED_EXHAUSTED")
+                .contains("resume_exhausted");
         jdbcTemplate.update("DELETE FROM eval_conversation_checkpoint WHERE conversation_id = ?", conv);
     }
 }

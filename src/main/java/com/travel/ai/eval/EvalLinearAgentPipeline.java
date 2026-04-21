@@ -2,6 +2,7 @@ package com.travel.ai.eval;
 
 import com.travel.ai.eval.dto.EvalChatRequest;
 import com.travel.ai.plan.PlanPhysicalStagePolicy;
+import com.travel.ai.runtime.StageName;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -24,20 +25,20 @@ public final class EvalLinearAgentPipeline {
     /**
      * 固定顺序；须与主线 {@link com.travel.ai.agent.TravelAgent} 线性阶段一致。
      */
-    private static final EvalAgentStage[] FIXED_ORDER = {
-            EvalAgentStage.PLAN,
-            EvalAgentStage.RETRIEVE,
-            EvalAgentStage.TOOL,
-            EvalAgentStage.GUARD,
-            EvalAgentStage.WRITE
+    private static final StageName[] FIXED_ORDER = {
+            StageName.PLAN,
+            StageName.RETRIEVE,
+            StageName.TOOL,
+            StageName.GUARD,
+            StageName.WRITE
     };
 
     /** {@code PLAN} 之后、按物理跳过规则迭代的子序列。 */
-    private static final EvalAgentStage[] POST_PLAN_STAGES = {
-            EvalAgentStage.RETRIEVE,
-            EvalAgentStage.TOOL,
-            EvalAgentStage.GUARD,
-            EvalAgentStage.WRITE
+    private static final StageName[] POST_PLAN_STAGES = {
+            StageName.RETRIEVE,
+            StageName.TOOL,
+            StageName.GUARD,
+            StageName.WRITE
     };
 
     private EvalLinearAgentPipeline() {
@@ -54,7 +55,7 @@ public final class EvalLinearAgentPipeline {
     }
 
     /**
-     * Day6：在 {@link EvalAgentStage#TOOL} 节点插入<strong>串行</strong>回调（仅调用一次，不并行多工具），其余阶段仍为占位。
+     * Day6：在 {@link StageName#TOOL} 节点插入<strong>串行</strong>回调（仅调用一次，不并行多工具），其余阶段仍为占位。
      *
      * @deprecated 使用 {@link #runStubStages(EvalChatRequest, PlanPhysicalStagePolicy.PhysicalStageFlags, Runnable)}。
      */
@@ -71,34 +72,87 @@ public final class EvalLinearAgentPipeline {
             PlanPhysicalStagePolicy.PhysicalStageFlags flags,
             Runnable onToolStage
     ) {
-        List<String> stageOrder = new ArrayList<>(FIXED_ORDER.length);
+        return runStubStagesResumingAfterIndex(request, flags, -1, onToolStage);
+    }
+
+    /**
+     * 与 {@link #runStubStages} 相同物理跳过规则；{@code lastCompletedIndexInclusive < 0} 表示不续跑（完整执行）。
+     * <p>
+     * 否则假定 {@code projectedFullStageOrder(flags)} 中下标 {@code 0..lastCompletedIndexInclusive} 已在前序请求完成，
+     * 仅执行后续阶段并<strong>追加</strong>到 {@code stage_order}（前缀为已跳过阶段名，无二次占位执行）。
+     */
+    public static List<String> runStubStagesResumingAfterIndex(
+            EvalChatRequest request,
+            PlanPhysicalStagePolicy.PhysicalStageFlags flags,
+            int lastCompletedIndexInclusive,
+            Runnable onToolStage
+    ) {
         Runnable toolHook = onToolStage != null ? onToolStage : () -> {};
-        stageOrder.add(EvalAgentStage.PLAN.name());
-        runStubStage(EvalAgentStage.PLAN, request);
-        for (EvalAgentStage stage : POST_PLAN_STAGES) {
-            if (stage == EvalAgentStage.RETRIEVE && !flags.runRetrieve()) {
-                continue;
+        if (lastCompletedIndexInclusive < 0) {
+            List<String> stageOrder = new ArrayList<>(FIXED_ORDER.length);
+            stageOrder.add(StageName.PLAN.name());
+            runStubStage(StageName.PLAN, request);
+            for (StageName stage : POST_PLAN_STAGES) {
+                if (stage == StageName.RETRIEVE && !flags.runRetrieve()) {
+                    continue;
+                }
+                if (stage == StageName.TOOL && !flags.runTool()) {
+                    continue;
+                }
+                if (stage == StageName.GUARD && !flags.runGuard()) {
+                    continue;
+                }
+                if (stage == StageName.TOOL) {
+                    toolHook.run();
+                } else {
+                    runStubStage(stage, request);
+                }
+                stageOrder.add(stage.name());
             }
-            if (stage == EvalAgentStage.TOOL && !flags.runTool()) {
-                continue;
-            }
-            if (stage == EvalAgentStage.GUARD && !flags.runGuard()) {
-                continue;
-            }
-            if (stage == EvalAgentStage.TOOL) {
+            return Collections.unmodifiableList(stageOrder);
+        }
+        List<String> full = new ArrayList<>(projectedFullStageOrder(flags));
+        if (lastCompletedIndexInclusive >= full.size() - 1) {
+            return Collections.unmodifiableList(full);
+        }
+        List<String> stageOrder = new ArrayList<>(full.subList(0, lastCompletedIndexInclusive + 1));
+        for (int i = lastCompletedIndexInclusive + 1; i < full.size(); i++) {
+            StageName stage = StageName.valueOf(full.get(i));
+            if (stage == StageName.TOOL) {
                 toolHook.run();
             } else {
                 runStubStage(stage, request);
             }
-            stageOrder.add(stage.name());
+            stageOrder.add(full.get(i));
         }
         return Collections.unmodifiableList(stageOrder);
     }
 
     /**
+     * 当前 plan 物理跳过规则下，线性阶段名序列（大写），与 {@link #runStubStages} 实际经过顺序一致。
+     */
+    public static List<String> projectedFullStageOrder(PlanPhysicalStagePolicy.PhysicalStageFlags flags) {
+        List<String> names = new ArrayList<>(FIXED_ORDER.length);
+        names.add(StageName.PLAN.name());
+        for (StageName stage : POST_PLAN_STAGES) {
+            if (stage == StageName.RETRIEVE && !flags.runRetrieve()) {
+                continue;
+            }
+            if (stage == StageName.TOOL && !flags.runTool()) {
+                continue;
+            }
+            if (stage == StageName.GUARD && !flags.runGuard()) {
+                continue;
+            }
+            names.add(stage.name());
+        }
+        return Collections.unmodifiableList(names);
+    }
+
+    /**
      * Day2 占位：每阶段仅占位；Day3+ 在此接入计划生成、检索、工具、写作、门控等实现。
      */
-    private static void runStubStage(EvalAgentStage stage, EvalChatRequest request) {
+    private static void runStubStage(StageName stage, EvalChatRequest request) {
         switch (stage) {
             case PLAN -> { /* 后续：产出 Plan JSON + PlanParser */ }
             case RETRIEVE -> { /* 后续：向量检索 / hits */ }

@@ -33,6 +33,11 @@ import reactor.core.publisher.Flux;
 
 import com.travel.ai.llm.LlmUsage;
 import com.travel.ai.llm.SpringAiUsageExtractor;
+import com.travel.ai.runtime.StageEvent;
+import com.travel.ai.runtime.StageName;
+import com.travel.ai.runtime.PolicyEvent;
+import com.travel.ai.runtime.PlanParseEvent;
+import com.travel.ai.runtime.PolicyStageAnchor;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -198,12 +203,25 @@ public class TravelAgent {
         AtomicLong llmStartNs = new AtomicLong();
         AtomicBoolean firstLlmToken = new AtomicBoolean(true);
 
+        ctx.stageEvents.add(StageEvent.start(StageName.WRITE, ctx.requestId));
         Flux<String> contentFlux = stageWrite(ctx, llmStreamTimeout, llmStartNs, firstLlmToken);
 
         Flux<ServerSentEvent<String>> tokenEvents = contentFlux.map(chunk ->
                 ServerSentEvent.<String>builder().data(chunk).build());
 
         Flux<ServerSentEvent<String>> planParseMetaFlux = Flux.just(buildPlanParseMetaEvent(ctx));
+
+        Flux<ServerSentEvent<String>> stageEventsFlux = Flux.fromIterable(ctx.stageEvents)
+                .map(e -> ServerSentEvent.<String>builder()
+                        .event("stage")
+                        .data(e.toSseJson())
+                        .build());
+
+        Flux<ServerSentEvent<String>> policyEventsFlux = Flux.fromIterable(ctx.policyEvents)
+                .map(e -> ServerSentEvent.<String>builder()
+                        .event("policy")
+                        .data(e.toSseJson())
+                        .build());
 
         Flux<ServerSentEvent<String>> citationFlux = Flux.just(
                 ServerSentEvent.<String>builder().data(ctx.citationBlock).build()
@@ -213,7 +231,7 @@ public class TravelAgent {
                 .takeUntilOther(contentFlux.then())
                 .map(tick -> ServerSentEvent.<String>builder().comment("keepalive").build());
 
-        Flux<ServerSentEvent<String>> merged = Flux.concat(planParseMetaFlux, citationFlux, Flux.merge(tokenEvents, keepAlive));
+        Flux<ServerSentEvent<String>> merged = Flux.concat(planParseMetaFlux, stageEventsFlux, policyEventsFlux, citationFlux, Flux.merge(tokenEvents, keepAlive));
         return merged
                 .timeout(agentTotalTimeout)
                 .onErrorResume(t -> isTotalTimeout(t),
@@ -250,7 +268,10 @@ public class TravelAgent {
      * （{@link PlanPhysicalStagePolicy}）。
      */
     private void runLinearStages(MainAgentTurnContext ctx) {
+        ctx.stageEvents.add(StageEvent.start(StageName.PLAN, ctx.requestId));
         stagePlan(ctx);
+        // stagePlan 内部会记录 plan_parse_* 元数据；阶段结束事件在此统一写入
+        ctx.stageEvents.add(StageEvent.end(StageName.PLAN, ctx.requestId, ctx.stageElapsedMs.getOrDefault(StageName.PLAN, 0L)));
         PlanV1 planV1;
         try {
             planV1 = planParser.parse(ctx.planJson);
@@ -262,25 +283,33 @@ public class TravelAgent {
                 f.runRetrieve(), f.runTool(), f.runGuard(), ctx.requestId);
 
         if (f.runRetrieve()) {
+            ctx.stageEvents.add(StageEvent.start(StageName.RETRIEVE, ctx.requestId));
             stageRetrieve(ctx);
+            ctx.stageEvents.add(StageEvent.end(StageName.RETRIEVE, ctx.requestId, ctx.stageElapsedMs.getOrDefault(StageName.RETRIEVE, 0L)));
         } else {
             applyRetrieveSkipped(ctx);
         }
         if (f.runTool()) {
+            ctx.stageEvents.add(StageEvent.start(StageName.TOOL, ctx.requestId));
             stageTool(ctx);
+            ctx.stageEvents.add(StageEvent.end(StageName.TOOL, ctx.requestId, ctx.stageElapsedMs.getOrDefault(StageName.TOOL, 0L)));
         } else {
             applyToolSkipped(ctx);
         }
         if (f.runGuard()) {
+            ctx.stageEvents.add(StageEvent.start(StageName.GUARD, ctx.requestId));
             stageGuard(ctx);
+            ctx.stageEvents.add(StageEvent.end(StageName.GUARD, ctx.requestId, ctx.stageElapsedMs.getOrDefault(StageName.GUARD, 0L)));
         } else {
             log.info("[stage] GUARD skipped_by_plan requestId={}", ctx.requestId);
+            ctx.stageEvents.add(StageEvent.skip(StageName.GUARD, ctx.requestId, "skipped_by_plan"));
         }
     }
 
     private void applyRetrieveSkipped(MainAgentTurnContext ctx) {
         long t0 = System.nanoTime();
         log.info("[stage] RETRIEVE skipped_by_plan requestId={}", ctx.requestId);
+        ctx.stageEvents.add(StageEvent.skip(StageName.RETRIEVE, ctx.requestId, "skipped_by_plan"));
         ctx.queries = List.of();
         ctx.rewriteMs = 0;
         ctx.currentUser = org.springframework.security.core.context.SecurityContextHolder
@@ -300,15 +329,16 @@ public class TravelAgent {
         log.info("检索到 {} 条知识，queries={}", ctx.docs.size(), ctx.queries);
         log.info("[perf] rewrite_ms={} retrieve_ms={} doc_count={} requestId={}",
                 ctx.rewriteMs, ctx.retrieveMs, ctx.docs.size(), ctx.requestId);
-        logStageBoundary("RETRIEVE", t0, ctx.requestId);
+        logStageBoundary(StageName.RETRIEVE, t0, ctx);
     }
 
     private void applyToolSkipped(MainAgentTurnContext ctx) {
         long t0 = System.nanoTime();
         log.info("[stage] TOOL skipped_by_plan requestId={}", ctx.requestId);
+        ctx.stageEvents.add(StageEvent.skip(StageName.TOOL, ctx.requestId, "skipped_by_plan"));
         ctx.toolPreface = "";
         mergeFinalPromptFromCtx(ctx);
-        logStageBoundary("TOOL", t0, ctx.requestId);
+        logStageBoundary(StageName.TOOL, t0, ctx);
     }
 
     private void mergeFinalPromptFromCtx(MainAgentTurnContext ctx) {
@@ -319,9 +349,13 @@ public class TravelAgent {
         ctx.finalPromptForLlm = profileBlock + ctx.toolPreface + planBlock + ctx.promptBase;
     }
 
-    private void logStageBoundary(String stage, long startNs, String requestId) {
+    private void logStageBoundary(StageName stage, long startNs, MainAgentTurnContext ctx) {
         long ms = (System.nanoTime() - startNs) / 1_000_000L;
+        String requestId = ctx != null ? ctx.requestId : "";
         log.info("[stage] {} done elapsed_ms={} requestId={}", stage, ms, requestId);
+        if (ctx != null && stage != null) {
+            ctx.stageElapsedMs.put(stage, ms);
+        }
     }
 
     /**
@@ -349,7 +383,7 @@ public class TravelAgent {
             log.info("[stage] PLAN source=config_disabled requestId={}", ctx.requestId);
         }
         enforceAppendixEPlanOrFallback(ctx, planDraftSource);
-        logStageBoundary("PLAN", t0, ctx.requestId);
+        logStageBoundary(StageName.PLAN, t0, ctx);
     }
 
     /**
@@ -414,28 +448,17 @@ public class TravelAgent {
      * {@code plan_parse_resolved}（与日志 {@code [plan]} {@code resolved=} 对齐），便于 harness 对账。
      */
     private static ServerSentEvent<String> buildPlanParseMetaEvent(MainAgentTurnContext ctx) {
-        String json = "{\"plan_parse_outcome\":\""
-                + jsonEscapeForSseJson(ctx.planParseOutcome)
-                + "\",\"plan_parse_attempts\":"
-                + ctx.planParseAttempts
-                + ",\"plan_draft_source\":\""
-                + jsonEscapeForSseJson(ctx.planDraftSource)
-                + "\",\"plan_parse_resolved\":\""
-                + jsonEscapeForSseJson(ctx.planParseResolved)
-                + "\",\"request_id\":\""
-                + jsonEscapeForSseJson(ctx.requestId)
-                + "\"}";
+        PlanParseEvent e = PlanParseEvent.of(
+                ctx.planParseOutcome,
+                ctx.planParseAttempts,
+                ctx.planDraftSource,
+                ctx.planParseResolved,
+                ctx.requestId
+        );
         return ServerSentEvent.<String>builder()
                 .event("plan_parse")
-                .data(json)
+                .data(e.toSseJson())
                 .build();
-    }
-
-    private static String jsonEscapeForSseJson(String s) {
-        if (s == null) {
-            return "";
-        }
-        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", " ");
     }
 
     private static void recordPlanParseMeta(
@@ -519,7 +542,7 @@ public class TravelAgent {
 
         ctx.citationBlock = buildCitationBlock(ctx.docs);
 
-        logStageBoundary("RETRIEVE", t0, ctx.requestId);
+        logStageBoundary(StageName.RETRIEVE, t0, ctx);
     }
 
     /**
@@ -563,6 +586,14 @@ public class TravelAgent {
                 }
             }
             log(log, r, ctx.requestId);
+            ctx.policyEvents.add(PolicyEvent.of(
+                    "tool_stage",
+                    PolicyStageAnchor.TOOL.wireValue(),
+                    "tool",
+                    r.outcome() != null ? r.outcome().name().toLowerCase(java.util.Locale.ROOT) : null,
+                    r.errorCode(),
+                    ctx.requestId
+            ));
 
             String summary = r.observationSummary();
             if (summary == null) {
@@ -583,7 +614,7 @@ public class TravelAgent {
 
         mergeFinalPromptFromCtx(ctx);
 
-        logStageBoundary("TOOL", t0, ctx.requestId);
+        logStageBoundary(StageName.TOOL, t0, ctx);
     }
 
     /**
@@ -598,6 +629,17 @@ public class TravelAgent {
         ctx.skipLlmForEmptyHits = d.skipLlm();
         ctx.emptyHitsClarifyBody = d.clarifyBody() != null ? d.clarifyBody() : "";
         ctx.emptyHitsGateLogCode = d.skipGateErrorCode();
+        if (d.skipGateErrorCode() != null && !d.skipGateErrorCode().isBlank()) {
+            String behavior = d.skipLlm() ? "clarify" : "answer";
+            ctx.policyEvents.add(PolicyEvent.of(
+                    "rag_gate",
+                    PolicyStageAnchor.POST_RETRIEVE.wireValue(),
+                    behavior,
+                    d.reason() != null ? d.reason().name().toLowerCase(java.util.Locale.ROOT) : null,
+                    d.skipGateErrorCode(),
+                    ctx.requestId
+            ));
+        }
         switch (d.reason()) {
             case APPLIED_CLARIFY_RAG_EMPTY, APPLIED_CLARIFY_TOOL_NO_PAYLOAD -> log.info(
                     "[guard] empty_hits gate=clarify error_code={} requestId={}",
@@ -609,7 +651,7 @@ public class TravelAgent {
                     "[guard] empty_hits_behavior={} no_clarify_gate requestId={}", emptyHitsBehavior, ctx.requestId);
         }
 
-        logStageBoundary("GUARD", t0, ctx.requestId);
+        logStageBoundary(StageName.GUARD, t0, ctx);
     }
 
     /**
@@ -639,7 +681,11 @@ public class TravelAgent {
                             long wallMs = (System.nanoTime() - llmStartNs.get()) / 1_000_000L;
                             log.info("[perf] llm_stream_wall_ms={} signal={} requestId={}", wallMs, signal, ctx.requestId);
                         }
-                        logStageBoundary("WRITE", t0, ctx.requestId);
+                        logStageBoundary(StageName.WRITE, t0, ctx);
+                        Long ms = ctx.stageElapsedMs.get(StageName.WRITE);
+                        if (ms != null) {
+                            ctx.stageEvents.add(StageEvent.end(StageName.WRITE, ctx.requestId, ms));
+                        }
                     })
                     // cache：与 merge(..., takeUntilOther(contentFlux.then())) 多路订阅兼容，避免 share refcount 二次订阅导致 doFinally/perf 打两次
                     .cache();
@@ -693,7 +739,11 @@ public class TravelAgent {
                         log.info("[usage] token_estimate={} prompt_chars={} streamed_chars={} requestId={}",
                                 tokenEst, promptChars, streamedChars.get(), ctx.requestId);
                     }
-                    logStageBoundary("WRITE", t0, ctx.requestId);
+                    logStageBoundary(StageName.WRITE, t0, ctx);
+                    Long ms = ctx.stageElapsedMs.get(StageName.WRITE);
+                    if (ms != null) {
+                        ctx.stageEvents.add(StageEvent.end(StageName.WRITE, ctx.requestId, ms));
+                    }
                 })
                 .share();
         return flux;
@@ -744,6 +794,13 @@ public class TravelAgent {
         final String conversationId;
         final String userMessage;
         final String requestId;
+
+        /** 主线 SSE 可观测：阶段事件（A 粒度）。在 {@link #runLinearStages} 期间顺序追加，chat() 再一次性拼进 Flux。 */
+        final List<StageEvent> stageEvents = new ArrayList<>();
+        /** 阶段耗时（毫秒），由 {@link #logStageBoundary} 写入。 */
+        final Map<StageName, Long> stageElapsedMs = new LinkedHashMap<>();
+        /** 主线 SSE 可观测：策略/决策事件（与 eval meta.policy_events 同语义）。 */
+        final List<PolicyEvent> policyEvents = new ArrayList<>();
 
         String currentUser;
         Filter.Expression userFilter;

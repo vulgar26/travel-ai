@@ -7,6 +7,10 @@
 - **本页**：面向 **SSE 主产品** 的手工问题表。  
 - **评测批跑**：使用 **非流式** `POST /api/v1/eval/chat`；除业务头外还须 **`X-Eval-Gateway-Key`**（与 `APP_EVAL_GATEWAY_KEY` / `app.eval.gateway-key` 一致），以及 eval 侧契约要求的 **`X-Eval-Token`**、`X-Eval-Target-Id`、`X-Eval-Dataset-Id`、`X-Eval-Case-Id` 等（见 Vagent `eval-upgrade.md` E7）。  
 - **实现清单**：[`docs/IMPLEMENTATION_MATRIX.md`](IMPLEMENTATION_MATRIX.md)。
+- **共享事件语义（避免“主线 vs eval 两套口径”）**：主线 SSE 与 eval 都复用 `com.travel.ai.runtime.*` 中的共享模型：
+  - **`StageEvent` / `StageName`**：固定线性阶段过程（`event: stage` / eval 的 `meta.stage_order`）
+  - **`PolicyEvent`**：门控/工具治理/断点等策略轨迹（`event: policy` / eval 的 `meta.policy_events[]`）
+  - **`PlanParseEvent`**：plan parse 元信息（`event: plan_parse` / eval 的 `meta.plan_parse_*`）
 - **P0 数值门槛（eval 批跑）**：与手工表互补，见 [`eval/P0_THRESHOLD_RUNBOOK.md`](eval/P0_THRESHOLD_RUNBOOK.md)（`run.report` 聚合与 SSOT 比例核对）。
 - **`sources[]` vs SSE 引用块**：评测 JSON 与首包纯文本的**同源差异**见 [`eval/SOURCES_EVAL_VS_SSE.md`](SOURCES_EVAL_VS_SSE.md)。
 - **P1-0 harness 缺口与分步路线**：[`eval/P1_HARNESS_GAP.md`](P1_HARNESS_GAP.md)（`EvalChatMeta` 已具备字段 vs SSOT 仍缺项）。**`meta.config_snapshot_id`** 与 **`config_snapshot_hash`** 同源；可选 **`meta.config_snapshot`** 见 **`app.eval.config-snapshot-meta-enabled`**（`README`）。**`context_truncation_reasons`** 含 **`retrieval_candidates_capped`**、**`retrieval_query_line_truncated`**（非 `EVAL` 改写）等，见同文件 §2。  
@@ -40,6 +44,19 @@
 3. **`EvalBehaviorPolicy`**：仅 **`mode":"EVAL"`** 且未被上两层拦截时参与，固定部分 **`tool` / `clarify`** 与 `rag/empty` 类策略句。
 
 **请求体最小形**：`{"query":"…","mode":"EVAL"}`。未传 `plan_raw` 时使用服务端默认合法 plan（含 `RETRIEVE` 等阶段），见 `PlanParseCoordinator.DEFAULT_EVAL_PLAN_JSON`。
+
+### 常见 `error_code` 速查（eval 返回 / 主线 policy 事件也会复用）
+
+- **checkpoint / replay**
+  - **`EVAL_CHECKPOINT_PLAN_MISMATCH`**：同一 `conversation_id` 下 effective plan 指纹不一致（提示换 plan 或换会话）
+  - **`EVAL_CHECKPOINT_RESUMED_EXHAUSTED`**：断点显示流水线已完成，无需续跑
+- **RAG 门控**
+  - **`RETRIEVE_EMPTY`**：检索零命中 → `clarify`（eval；主线 guard 也可能用同码）
+  - **`RETRIEVE_LOW_CONFIDENCE`**：低置信/缺槽 → `clarify`
+- **工具阶段（eval stub / 主线治理）**
+  - **`TOOL_TIMEOUT`** / **`TOOL_ERROR`**
+  - **`TOOL_DISABLED_BY_CIRCUIT_BREAKER`**
+  - **`RATE_LIMITED`**
 
 **导入 Vagent / eval 时的 `tags` 建议**：下表「建议标签」列可与数据集 `tags` 对齐，便于 `/report/buckets` 分桶（与 `docs/HARNESS_RULES.md` 的 `attack/*` 等一致）。
 

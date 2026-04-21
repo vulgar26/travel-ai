@@ -15,9 +15,14 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
+import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import jakarta.servlet.DispatcherType;
+import jakarta.servlet.http.HttpServletResponse;
+
+import com.travel.ai.web.JsonApiErrorSupport;
 
 /**
  * Spring Security 主配置：JWT 无状态会话 + 白名单放行健康检查与登录。
@@ -59,12 +64,35 @@ public class SecurityConfig {
         return configuration.getAuthenticationManager();
     }
 
+    /**
+     * 未认证访问受保护资源时返回 JSON（与评测网关、Knowledge 错误体一致），避免浏览器收到非 JSON 401。
+     */
+    @Bean
+    public AuthenticationEntryPoint jsonAuthenticationEntryPoint() {
+        return (request, response, authException) -> JsonApiErrorSupport.write(
+                response,
+                HttpServletResponse.SC_UNAUTHORIZED,
+                "UNAUTHORIZED",
+                "需要有效的 Authorization: Bearer token");
+    }
+
+    @Bean
+    public AccessDeniedHandler jsonAccessDeniedHandler() {
+        return (request, response, accessDeniedException) -> JsonApiErrorSupport.write(
+                response,
+                HttpServletResponse.SC_FORBIDDEN,
+                "FORBIDDEN",
+                "权限不足");
+    }
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    AuthenticationProvider authenticationProvider,
                                                    EvalGatewayAuthFilter evalGatewayAuthFilter,
                                                    JwtAuthFilter jwtAuthFilter,
-                                                   RateLimitingFilter rateLimitingFilter) throws Exception {
+                                                   RateLimitingFilter rateLimitingFilter,
+                                                   AuthenticationEntryPoint jsonAuthenticationEntryPoint,
+                                                   AccessDeniedHandler jsonAccessDeniedHandler) throws Exception {
                                                     
         http.securityMatcher((request) ->
             request.getDispatcherType() == DispatcherType.REQUEST
@@ -85,7 +113,10 @@ public class SecurityConfig {
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(evalGatewayAuthFilter, JwtAuthFilter.class)
                 // 限流需要在 JwtAuthFilter 之后，这样才能拿到当前用户信息
-                .addFilterAfter(rateLimitingFilter, JwtAuthFilter.class);
+                .addFilterAfter(rateLimitingFilter, JwtAuthFilter.class)
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint(jsonAuthenticationEntryPoint)
+                        .accessDeniedHandler(jsonAccessDeniedHandler));
 
         return http.build();
     }

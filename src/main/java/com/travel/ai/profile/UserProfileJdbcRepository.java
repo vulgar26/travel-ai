@@ -37,7 +37,7 @@ public class UserProfileJdbcRepository {
         if (rows.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(rows.getFirst());
+        return Optional.of(rows.get(0));
     }
 
     public void upsert(String userId, int schemaVersion, ObjectNode payload) {

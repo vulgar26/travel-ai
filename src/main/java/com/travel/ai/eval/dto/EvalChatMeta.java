@@ -243,6 +243,11 @@ public class EvalChatMeta {
      */
     private Map<String, Object> selfCheck;
 
+    /**
+     * 断点续跑结果：{@code plan_mismatch|resume_exhausted|resumed|matched_non_resumable}；无断点逻辑时不出现。
+     */
+    private String evalCheckpointOutcome;
+
     public EvalChatMeta() {
     }
 
@@ -649,5 +654,13 @@ public class EvalChatMeta {
 
     public void setSelfCheck(Map<String, Object> selfCheck) {
         this.selfCheck = selfCheck;
+    }
+
+    public String getEvalCheckpointOutcome() {
+        return evalCheckpointOutcome;
+    }
+
+    public void setEvalCheckpointOutcome(String evalCheckpointOutcome) {
+        this.evalCheckpointOutcome = evalCheckpointOutcome;
     }
 }

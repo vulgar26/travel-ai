@@ -11,14 +11,12 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.travel.ai.web.JsonApiErrorSupport;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 评测 HTTP 入口网关：仅校验与业务 membership 无关的 {@code X-Eval-Gateway-Key}，
@@ -51,13 +49,13 @@ public class EvalGatewayAuthFilter extends OncePerRequestFilter {
     ) throws ServletException, IOException {
         String expectedGatewayKey = appEvalProperties.getGatewayKey();
         if (expectedGatewayKey.isBlank()) {
-            writeJson(response, HttpServletResponse.SC_UNAUTHORIZED, "EVAL_GATEWAY_NOT_CONFIGURED",
+            JsonApiErrorSupport.write(response, HttpServletResponse.SC_UNAUTHORIZED, "EVAL_GATEWAY_NOT_CONFIGURED",
                     "Set app.eval.gateway-key or environment APP_EVAL_GATEWAY_KEY.");
             return;
         }
         String provided = request.getHeader(HEADER);
         if (!constantTimeEquals(expectedGatewayKey, provided)) {
-            writeJson(response, HttpServletResponse.SC_UNAUTHORIZED, "EVAL_GATEWAY_UNAUTHORIZED",
+            JsonApiErrorSupport.write(response, HttpServletResponse.SC_UNAUTHORIZED, "EVAL_GATEWAY_UNAUTHORIZED",
                     "Missing or invalid " + HEADER + ".");
             return;
         }
@@ -80,13 +78,4 @@ public class EvalGatewayAuthFilter extends OncePerRequestFilter {
         return MessageDigest.isEqual(a, b);
     }
 
-    private static void writeJson(HttpServletResponse response, int status, String code, String message)
-            throws IOException {
-        response.setStatus(status);
-        response.setContentType("application/json;charset=UTF-8");
-        Map<String, String> m = new LinkedHashMap<>();
-        m.put("error", code);
-        m.put("message", message);
-        response.getWriter().write(new ObjectMapper().writeValueAsString(m));
-    }
 }

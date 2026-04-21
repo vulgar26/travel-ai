@@ -1,10 +1,13 @@
 package com.travel.ai.eval;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * 评测回放断点：表 {@code eval_conversation_checkpoint}（Flyway V3）。
@@ -20,6 +23,39 @@ public class EvalCheckpointRepository {
     public EvalCheckpointRepository(JdbcTemplate jdbcTemplate, ObjectMapper objectMapper) {
         this.jdbcTemplate = jdbcTemplate;
         this.objectMapper = objectMapper;
+    }
+
+    public Optional<EvalCheckpointRow> findByConversationId(String conversationId) {
+        if (conversationId == null || conversationId.isBlank()) {
+            return Optional.empty();
+        }
+        List<EvalCheckpointRow> rows = jdbcTemplate.query(
+                """
+                        SELECT plan_raw_sha256, last_completed_stage, stage_index, config_snapshot_hash, detail::text
+                        FROM eval_conversation_checkpoint WHERE conversation_id = ?
+                        """,
+                (rs, rowNum) -> new EvalCheckpointRow(
+                        rs.getString(1) != null ? rs.getString(1).trim() : "",
+                        rs.getString(2),
+                        rs.getInt(3),
+                        rs.getString(4),
+                        parseDetailMap(rs.getString(5))
+                ),
+                conversationId
+        );
+        return rows.stream().findFirst();
+    }
+
+    private Map<String, Object> parseDetailMap(String json) {
+        if (json == null || json.isBlank()) {
+            return Map.of();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<>() {
+            });
+        } catch (Exception e) {
+            return Map.of();
+        }
     }
 
     /**

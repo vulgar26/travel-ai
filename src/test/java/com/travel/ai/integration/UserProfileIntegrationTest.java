@@ -21,8 +21,6 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.utility.DockerImageName;
-
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -36,19 +34,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 @ActiveProfiles("test")
 class UserProfileIntegrationTest {
 
-    private static final DockerImageName PGVECTOR =
-            DockerImageName.parse("pgvector/pgvector:pg16").asCompatibleSubstituteFor("postgres");
-
     @Container
     @ServiceConnection
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PGVECTOR)
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(IntegrationTestImages.postgresPgvector())
             .withDatabaseName("ragent")
             .withUsername("postgres")
             .withPassword("postgres");
 
     @Container
     @ServiceConnection
-    static GenericContainer<?> redis = new GenericContainer<>(DockerImageName.parse("redis:7-alpine"))
+    static GenericContainer<?> redis = new GenericContainer<>(IntegrationTestImages.redis())
             .withExposedPorts(6379);
 
     @MockBean

@@ -6,6 +6,8 @@ import com.travel.ai.eval.dto.EvalChatPolicyEvent;
 import com.travel.ai.eval.dto.EvalChatRequest;
 import com.travel.ai.eval.dto.EvalChatResponse;
 import com.travel.ai.eval.dto.EvalChatResultTool;
+import com.travel.ai.runtime.PolicyEvent;
+import com.travel.ai.runtime.PolicyStageAnchor;
 import com.travel.ai.eval.dto.EvalChatRetrievalHit;
 import com.travel.ai.eval.dto.EvalChatSource;
 import com.travel.ai.eval.dto.EvalGuardrailsCapability;
@@ -74,6 +76,12 @@ public class EvalChatService {
 
     /** 与主线 SSE {@code TravelAgent} 总超时提示对齐的评测归因码。 */
     public static final String ERROR_CODE_AGENT_TOTAL_TIMEOUT = "AGENT_TOTAL_TIMEOUT";
+
+    /** 断点库中 plan 指纹与当前 effective plan 不一致（见 {@link #maybePersistEvalCheckpoint} 写入口径）。 */
+    public static final String ERROR_CODE_EVAL_CHECKPOINT_PLAN_MISMATCH = "EVAL_CHECKPOINT_PLAN_MISMATCH";
+
+    /** 断点显示当前 plan 下线性阶段已全部完成，无需续跑。 */
+    public static final String ERROR_CODE_EVAL_CHECKPOINT_RESUMED_EXHAUSTED = "EVAL_CHECKPOINT_RESUMED_EXHAUSTED";
 
     /**
      * 写入 {@link EvalChatMeta#setConfigSnapshotId} 的前缀，与 {@link #stampConfigSnapshotHashOnMeta} 中 SHA-256 小写 hex 拼接。
@@ -329,7 +337,7 @@ public class EvalChatService {
                 response.setErrorCode(d.errorCode());
             }
             response.setAnswer(d.answer());
-            appendPolicyEvent(meta, "safety_gate", "pre_plan", d.behavior(), d.ruleId(), d.errorCode());
+            appendPolicyEvent(meta, "safety_gate", PolicyStageAnchor.PRE_PLAN.wireValue(), d.behavior(), d.ruleId(), d.errorCode());
             return complete(response, request, membershipCtx, emptyEvidence());
         }
 
@@ -360,6 +368,49 @@ public class EvalChatService {
         PlanPhysicalStagePolicy.PhysicalStageFlags physical = PlanPhysicalStagePolicy.resolve(planV1);
         final String planJsonForCheckpoint = parseResult.effectivePlanJson();
 
+        Integer checkpointResumeLastInclusiveIndex = null;
+        EvalCheckpointRepository cpRepo = evalCheckpointRepository.getIfAvailable();
+        String convId = request.getConversationId();
+        String planHashNow = sha256Hex(planJsonForCheckpoint);
+        if (appEvalProperties.isCheckpointPersistenceEnabled() && cpRepo != null
+                && convId != null && !convId.isBlank() && convId.length() <= 128) {
+            try {
+                Optional<EvalCheckpointRow> rowOpt = cpRepo.findByConversationId(convId);
+                if (rowOpt.isPresent()) {
+                    EvalCheckpointRow row = rowOpt.get();
+                    if (!planHashNow.equals(row.planRawSha256().trim())) {
+                        meta.setStageOrder(List.of("PLAN"));
+                        meta.setStepCount(1);
+                        response.setBehavior("clarify");
+                        response.setErrorCode(ERROR_CODE_EVAL_CHECKPOINT_PLAN_MISMATCH);
+                        response.setAnswer("会话断点中的 plan 指纹与本次请求的 effective plan 不一致。请使用相同 plan_raw，或更换 conversation_id 开始新会话。");
+                        meta.setEvalCheckpointOutcome("plan_mismatch");
+                        appendPolicyEvent(meta, "eval_checkpoint", PolicyStageAnchor.POST_PLAN.wireValue(), "clarify", "plan_hash_mismatch",
+                                ERROR_CODE_EVAL_CHECKPOINT_PLAN_MISMATCH);
+                        return complete(response, request, membershipCtx, emptyEvidence(), planJsonForCheckpoint);
+                    }
+                    List<String> fullProj = EvalLinearAgentPipeline.projectedFullStageOrder(physical);
+                    int lastIdx = fullProj.lastIndexOf(row.lastCompletedStage());
+                    if (!row.resumeEligible() || lastIdx < 0) {
+                        meta.setEvalCheckpointOutcome("matched_non_resumable");
+                    } else if (lastIdx >= fullProj.size() - 1) {
+                        meta.setStageOrder(fullProj);
+                        meta.setStepCount(fullProj.size());
+                        response.setBehavior("clarify");
+                        response.setErrorCode(ERROR_CODE_EVAL_CHECKPOINT_RESUMED_EXHAUSTED);
+                        response.setAnswer("断点显示该会话在当前 plan 下流水线已走完，无需续跑。");
+                        meta.setEvalCheckpointOutcome("resume_exhausted");
+                        return complete(response, request, membershipCtx, emptyEvidence(), planJsonForCheckpoint);
+                    } else {
+                        checkpointResumeLastInclusiveIndex = lastIdx;
+                        meta.setEvalCheckpointOutcome("resumed");
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("[eval] checkpoint_read_failed conversationId={} err={}", convId, e.toString());
+            }
+        }
+
         // Day10/S1：仅在 plan 声明 RETRIEVE 时拉取向量证据（与主线按 steps 物理跳过对齐）。
         Evidence evidence = physical.runRetrieve()
                 ? retrieveEvidence(request.getQuery(), mode, xEvalMembershipTopN)
@@ -383,7 +434,7 @@ public class EvalChatService {
                 response.setErrorCode(d.errorCode());
             }
             response.setAnswer(d.answer());
-            appendPolicyEvent(meta, "query_safety", "post_plan", d.behavior(), firstPolicyRuleFromReasons(d.reasons()), d.errorCode());
+            appendPolicyEvent(meta, "query_safety", PolicyStageAnchor.POST_PLAN.wireValue(), d.behavior(), firstPolicyRuleFromReasons(d.reasons()), d.errorCode());
             return complete(response, request, membershipCtx, evidence, planJsonForCheckpoint);
         }
 
@@ -399,7 +450,7 @@ public class EvalChatService {
                 if (decision.reasons() != null && !decision.reasons().isEmpty()) {
                     meta.setLowConfidenceReasons(decision.reasons());
                 }
-                appendPolicyEvent(meta, "behavior_policy", "post_retrieve", decision.behavior(),
+                appendPolicyEvent(meta, "behavior_policy", PolicyStageAnchor.POST_RETRIEVE.wireValue(), decision.behavior(),
                         firstPolicyRuleFromReasons(decision.reasons()), decision.errorCode());
                 if ("clarify".equalsIgnoreCase(decision.behavior())) {
                     meta.setLowConfidence(true);
@@ -433,7 +484,7 @@ public class EvalChatService {
             response.setBehavior("clarify");
             response.setErrorCode(EvalRagGateScenarios.ERROR_CODE_RETRIEVE_EMPTY);
             response.setAnswer("检索零命中：请补充关键词/范围/上下文，或提供可引用资料后再继续。");
-            appendPolicyEvent(meta, "rag_gate", "post_retrieve", "clarify", "business_empty_hits",
+            appendPolicyEvent(meta, "rag_gate", PolicyStageAnchor.POST_RETRIEVE.wireValue(), "clarify", "business_empty_hits",
                     EvalRagGateScenarios.ERROR_CODE_RETRIEVE_EMPTY);
             return complete(response, request, membershipCtx, evidence, planJsonForCheckpoint);
         }
@@ -449,7 +500,7 @@ public class EvalChatService {
             response.setBehavior("clarify");
             response.setErrorCode(EvalRagGateScenarios.ERROR_CODE_RETRIEVE_LOW_CONFIDENCE);
             response.setAnswer("信息不足或指代不明：请补充目的地/日期/偏好，或说明你指的是哪个对象/项目。");
-            appendPolicyEvent(meta, "rag_gate", "post_retrieve", "clarify", "business_low_confidence_heuristic",
+            appendPolicyEvent(meta, "rag_gate", PolicyStageAnchor.POST_RETRIEVE.wireValue(), "clarify", "business_low_confidence_heuristic",
                     EvalRagGateScenarios.ERROR_CODE_RETRIEVE_LOW_CONFIDENCE);
             return complete(response, request, membershipCtx, evidence, planJsonForCheckpoint);
         }
@@ -464,13 +515,13 @@ public class EvalChatService {
                 meta.setLowConfidenceReasons(EvalRagGateScenarios.REASONS_EMPTY_HITS);
                 response.setErrorCode(EvalRagGateScenarios.ERROR_CODE_RETRIEVE_EMPTY);
                 response.setAnswer("检索零命中，已门控为澄清（评测 stub，P0 未启用 score 阈值）。");
-                appendPolicyEvent(meta, "rag_gate", "post_retrieve", "clarify", "stub_empty_hits",
+                appendPolicyEvent(meta, "rag_gate", PolicyStageAnchor.POST_RETRIEVE.wireValue(), "clarify", "stub_empty_hits",
                         EvalRagGateScenarios.ERROR_CODE_RETRIEVE_EMPTY);
             } else {
                 meta.setRetrieveHitCount(1);
                 meta.setLowConfidenceReasons(EvalRagGateScenarios.REASONS_LOW_CONFIDENCE);
                 response.setAnswer("证据置信不足，已门控为澄清（评测 stub，P0 未启用 score 阈值）。");
-                appendPolicyEvent(meta, "rag_gate", "post_retrieve", "clarify", "stub_low_confidence",
+                appendPolicyEvent(meta, "rag_gate", PolicyStageAnchor.POST_RETRIEVE.wireValue(), "clarify", "stub_low_confidence",
                         EvalRagGateScenarios.ERROR_CODE_RETRIEVE_LOW_CONFIDENCE);
             }
             response.setBehavior("clarify");
@@ -478,7 +529,8 @@ public class EvalChatService {
         }
 
         AtomicReference<EvalToolStageRunner.EvalToolInvocationResult> toolSlot = new AtomicReference<>();
-        List<String> stageOrder = EvalLinearAgentPipeline.runStubStages(request, physical, () -> {
+        int resumeIdx = checkpointResumeLastInclusiveIndex == null ? -1 : checkpointResumeLastInclusiveIndex;
+        List<String> stageOrder = EvalLinearAgentPipeline.runStubStagesResumingAfterIndex(request, physical, resumeIdx, () -> {
             EvalToolStageRunner.EvalToolInvocationResult r = evalToolStageRunner.invoke(request);
             if (r != null) {
                 toolSlot.set(r);
@@ -537,7 +589,7 @@ public class EvalChatService {
                     response.setAnswer("工具触发限流，已降级返回（评测 stub）。");
                 }
             }
-            appendPolicyEvent(meta, "tool_stage", "tool", response.getBehavior(), inv.outcome(), response.getErrorCode());
+            appendPolicyEvent(meta, "tool_stage", PolicyStageAnchor.TOOL.wireValue(), response.getBehavior(), inv.outcome(), response.getErrorCode());
             return complete(response, request, membershipCtx, evidence, planJsonForCheckpoint);
         }
 
@@ -570,20 +622,21 @@ public class EvalChatService {
                 || behavior == null || behavior.isBlank()) {
             return;
         }
+        PolicyEvent shared = PolicyEvent.of(policyType, stage, behavior, ruleId, errorCode, meta.getRequestId());
         List<EvalChatPolicyEvent> list = meta.getPolicyEvents();
         if (list == null) {
             list = new ArrayList<>();
             meta.setPolicyEvents(list);
         }
         EvalChatPolicyEvent e = new EvalChatPolicyEvent();
-        e.setPolicyType(policyType);
-        e.setStage(stage);
-        e.setBehavior(behavior);
-        if (ruleId != null && !ruleId.isBlank()) {
-            e.setRuleId(ruleId);
+        e.setPolicyType(shared.policyType());
+        e.setStage(shared.stage());
+        e.setBehavior(shared.behavior());
+        if (shared.ruleId() != null && !shared.ruleId().isBlank()) {
+            e.setRuleId(shared.ruleId());
         }
-        if (errorCode != null && !errorCode.isBlank()) {
-            e.setErrorCode(errorCode);
+        if (shared.errorCode() != null && !shared.errorCode().isBlank()) {
+            e.setErrorCode(shared.errorCode());
         }
         list.add(e);
     }
@@ -662,6 +715,8 @@ public class EvalChatService {
         if (response.getErrorCode() != null && !response.getErrorCode().isBlank()) {
             detail.put("error_code", response.getErrorCode());
         }
+        boolean resumeEligible = !order.isEmpty() && "WRITE".equals(order.get(order.size() - 1));
+        detail.put("resume_eligible", resumeEligible);
         try {
             repo.upsert(
                     conv,
