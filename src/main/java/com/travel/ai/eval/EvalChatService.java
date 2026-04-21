@@ -372,6 +372,7 @@ public class EvalChatService {
         EvalCheckpointRepository cpRepo = evalCheckpointRepository.getIfAvailable();
         String convId = request.getConversationId();
         String planHashNow = sha256Hex(planJsonForCheckpoint);
+        EvalCheckpointRow matchedCheckpointRow = null;
         if (appEvalProperties.isCheckpointPersistenceEnabled() && cpRepo != null
                 && convId != null && !convId.isBlank() && convId.length() <= 128) {
             try {
@@ -405,6 +406,7 @@ public class EvalChatService {
                         checkpointResumeLastInclusiveIndex = lastIdx;
                         meta.setEvalCheckpointOutcome("resumed");
                     }
+                    matchedCheckpointRow = row;
                 }
             } catch (Exception e) {
                 log.warn("[eval] checkpoint_read_failed conversationId={} err={}", convId, e.toString());
@@ -412,9 +414,12 @@ public class EvalChatService {
         }
 
         // Day10/S1：仅在 plan 声明 RETRIEVE 时拉取向量证据（与主线按 steps 物理跳过对齐）。
-        Evidence evidence = physical.runRetrieve()
-                ? retrieveEvidence(request.getQuery(), mode, xEvalMembershipTopN)
-                : emptyEvidence();
+        // checkpoint 命中且 detail 中有同 query 的证据快照时，直接复用（避免重复向量检索）。
+        Evidence evidence = emptyEvidence();
+        if (physical.runRetrieve()) {
+            Evidence reused = tryReuseEvidenceFromCheckpoint(matchedCheckpointRow, request);
+            evidence = reused != null ? reused : retrieveEvidence(request.getQuery(), mode, xEvalMembershipTopN);
+        }
         if (!evidence.retrievalHits.isEmpty()) {
             response.setRetrievalHits(evidence.retrievalHits);
             meta.setRetrieveHitCount(evidence.retrievalHits.size());
@@ -662,14 +667,15 @@ public class EvalChatService {
         maybeAttachProviderTokenUsage(response.getMeta(), request);
         EvalReflectionSupport.apply(response, request, appEvalProperties.isReflectionMetaEnabled());
         attachRetrievalMembershipMeta(response.getMeta(), response, membershipCtx, evidence);
-        maybePersistEvalCheckpoint(request, response, effectivePlanJsonForCheckpoint);
+        maybePersistEvalCheckpoint(request, response, effectivePlanJsonForCheckpoint, evidence);
         return response;
     }
 
     private void maybePersistEvalCheckpoint(
             EvalChatRequest request,
             EvalChatResponse response,
-            String effectivePlanJsonUtf8
+            String effectivePlanJsonUtf8,
+            Evidence evidence
     ) {
         if (!appEvalProperties.isCheckpointPersistenceEnabled()) {
             return;
@@ -709,6 +715,9 @@ public class EvalChatService {
         int stageIndex = Math.min(order.size() - 1, 32);
         Map<String, Object> detail = new LinkedHashMap<>();
         detail.put("request_id", meta.getRequestId());
+        if (request.getQuery() != null && !request.getQuery().isBlank()) {
+            detail.put("query_sha256", sha256Hex(request.getQuery().trim()));
+        }
         if (response.getBehavior() != null) {
             detail.put("behavior", response.getBehavior());
         }
@@ -717,6 +726,25 @@ public class EvalChatService {
         }
         boolean resumeEligible = !order.isEmpty() && "WRITE".equals(order.get(order.size() - 1));
         detail.put("resume_eligible", resumeEligible);
+        if (evidence != null && evidence.retrievalHits() != null && !evidence.retrievalHits().isEmpty()) {
+            detail.put("evidence_retrieval_hits", evidence.retrievalHits());
+        }
+        if (evidence != null && evidence.sources() != null && !evidence.sources().isEmpty()) {
+            detail.put("evidence_sources", evidence.sources());
+        }
+        if (evidence != null) {
+            detail.put("evidence_candidate_total", evidence.candidateTotal());
+            detail.put("evidence_candidate_limit_n", evidence.candidateLimitN());
+            if (evidence.sourcesSnippetTruncated()) {
+                detail.put("sources_snippet_truncated", true);
+            }
+            if (evidence.retrievalCandidatesCapped()) {
+                detail.put("retrieval_candidates_capped", true);
+            }
+            if (evidence.retrievalQueryLineTruncated()) {
+                detail.put("retrieval_query_line_truncated", true);
+            }
+        }
         try {
             repo.upsert(
                     conv,
@@ -928,6 +956,102 @@ public class EvalChatService {
 
     private static Evidence emptyEvidence() {
         return new Evidence(List.of(), List.of(), 0, 0, false, false, false);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Evidence tryReuseEvidenceFromCheckpoint(EvalCheckpointRow row, EvalChatRequest request) {
+        if (row == null || request == null) {
+            return null;
+        }
+        if (request.getQuery() == null || request.getQuery().isBlank()) {
+            return null;
+        }
+        Map<String, Object> d = row.detail();
+        if (d == null || d.isEmpty()) {
+            return null;
+        }
+        Object qh = d.get("query_sha256");
+        if (!(qh instanceof String storedHash) || storedHash.isBlank()) {
+            return null;
+        }
+        String now = sha256Hex(request.getQuery().trim());
+        if (!storedHash.trim().equalsIgnoreCase(now)) {
+            return null;
+        }
+        Object hitsRaw = d.get("evidence_retrieval_hits");
+        Object sourcesRaw = d.get("evidence_sources");
+        if (!(hitsRaw instanceof List<?> hitsList) || !(sourcesRaw instanceof List<?> sourcesList)) {
+            return null;
+        }
+        List<EvalChatRetrievalHit> hits = new ArrayList<>(hitsList.size());
+        for (Object o : hitsList) {
+            if (o instanceof Map<?, ?> m) {
+                Object id = m.get("id");
+                Object title = m.get("title");
+                Object score = m.get("score");
+                EvalChatRetrievalHit h = new EvalChatRetrievalHit();
+                if (id != null) h.setId(String.valueOf(id));
+                if (title != null) h.setTitle(String.valueOf(title));
+                if (score instanceof Number n) h.setScore(n.doubleValue());
+                hits.add(h);
+            }
+        }
+        List<EvalChatSource> sources = new ArrayList<>(sourcesList.size());
+        for (Object o : sourcesList) {
+            if (o instanceof Map<?, ?> m) {
+                Object id = m.get("id");
+                Object title = m.get("title");
+                Object snippet = m.get("snippet");
+                Object score = m.get("score");
+                EvalChatSource s = new EvalChatSource();
+                if (id != null) s.setId(String.valueOf(id));
+                if (title != null) s.setTitle(String.valueOf(title));
+                if (snippet != null) s.setSnippet(String.valueOf(snippet));
+                if (score instanceof Number n) s.setScore(n.doubleValue());
+                sources.add(s);
+            }
+        }
+        int candidateTotal = intFromDetail(d.get("evidence_candidate_total"));
+        int limitN = intFromDetail(d.get("evidence_candidate_limit_n"));
+        boolean snippetTruncated = boolFromDetail(d.get("sources_snippet_truncated"));
+        boolean capped = boolFromDetail(d.get("retrieval_candidates_capped"));
+        boolean queryLineTruncated = boolFromDetail(d.get("retrieval_query_line_truncated"));
+        return new Evidence(
+                Collections.unmodifiableList(hits),
+                Collections.unmodifiableList(sources),
+                candidateTotal,
+                limitN,
+                snippetTruncated,
+                capped,
+                queryLineTruncated
+        );
+    }
+
+    private static int intFromDetail(Object o) {
+        if (o instanceof Number n) {
+            return n.intValue();
+        }
+        if (o instanceof String s) {
+            try {
+                return Integer.parseInt(s.trim());
+            } catch (Exception ignored) {
+                return 0;
+            }
+        }
+        return 0;
+    }
+
+    private static boolean boolFromDetail(Object o) {
+        if (o instanceof Boolean b) {
+            return b;
+        }
+        if (o instanceof String s) {
+            return "true".equalsIgnoreCase(s.trim()) || "1".equals(s.trim());
+        }
+        if (o instanceof Number n) {
+            return n.intValue() != 0;
+        }
+        return false;
     }
 
     private record DedupedSlice(List<Document> docs, int totalUnique) {

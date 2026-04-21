@@ -1,6 +1,6 @@
 # 评测回放与断点恢复（设计草案 · Schema + 写路径）
 
-**状态**：Flyway **`V3__eval_replay_checkpoint.sql`** 已落表；**`EvalCheckpointRepository`** + **`EvalChatService#maybePersistEvalCheckpoint`** 已在评测响应组装末尾 **UPSERT**（须请求体 **`conversation_id`** 非空且 plan 已解析；失败只打日志）。**读路径 / 续跑校验**仍待下一小步。  
+**状态**：Flyway **`V3__eval_replay_checkpoint.sql`** 已落表；**`EvalCheckpointRepository`** + **`EvalChatService#maybePersistEvalCheckpoint`** 已在评测响应组装末尾 **UPSERT**（须请求体 **`conversation_id`** 非空且 plan 已解析；失败只打日志）。**读路径**已实现：会校验 plan 指纹，必要时返回 `EVAL_CHECKPOINT_PLAN_MISMATCH` / `EVAL_CHECKPOINT_RESUMED_EXHAUSTED`；并支持<strong>同一 query</strong> 复用证据快照以避免重复检索。  
 **索引**：[`P1_HARNESS_GAP.md`](P1_HARNESS_GAP.md) §2「回放 / 断点恢复」。  
 **开关**：`app.eval.checkpoint-persistence-enabled`（默认 **true**，见 `application.yml`）。
 
@@ -23,7 +23,7 @@
 | **`last_completed_stage`** | 最近一次**已完整结束**的线性阶段名（如 `PLAN`、`RETRIEVE`），与 `meta.stage_order` 大写枚举一致（取 `stage_order` 最后一项）。 |
 | **`stage_index`** | 数值游标（0～32）：当前为 **`stage_order.size() - 1`**（与最后一阶段下标一致）。 |
 | **`config_snapshot_hash`** | 可选；与评测 `meta.config_snapshot_hash` 同源时写入。 |
-| **`detail`** | JSONB：当前写入 **`request_id`**、**`behavior`**、可选 **`error_code`**（**不含** query 原文）。 |
+| **`detail`** | JSONB：当前写入 **`request_id`**、**`behavior`**、可选 **`error_code`**（**不含** query 原文），以及用于证据复用的 `query_sha256` 与 `evidence_*` 快照。 |
 | **`created_at` / `updated_at`** | 首次写入与最后更新时间。 |
 
 **索引**：`plan_raw_sha256`、`updated_at DESC` —— 支持按指纹排查、按时间扫尾。
@@ -42,8 +42,9 @@
 
 1. ~~**`EvalCheckpointRepository`**（Jdbc）~~：**已完成**（`upsert` / `deleteByConversationId`）。  
 2. ~~**评测路径写库**~~：**已完成**（`maybePersistEvalCheckpoint`；`app.eval.checkpoint-persistence-enabled`）。  
-3. **回放契约**：请求体带 `conversation_id` 时，服务端校验 **`plan_raw` 哈希与库中一致**后再「从 `stage_index+1` 续跑」（与 `P1_HARNESS_GAP` SSOT 对齐）。  
-4. **主线 SSE**：若产品需要「刷新后续航」，再评估是否共用本表或拆 `agent_conversation_checkpoint`。
+3. **回放契约**：请求体带 `conversation_id` 时，服务端校验 **`plan_raw` 哈希与库中一致**；若断点显示已结束则返回 `EVAL_CHECKPOINT_RESUMED_EXHAUSTED`；若哈希不一致返回 `EVAL_CHECKPOINT_PLAN_MISMATCH`。  
+4. **证据复用（已落地）**：同一 `conversation_id` 下再次请求时，若 `sha256(query)` 与断点行 `detail.query_sha256` 一致，且 `detail.evidence_sources/hits` 存在，则直接复用，不再调用向量检索。  
+5. **主线 SSE**：若产品需要「刷新后续航」，再评估是否共用本表或拆 `agent_conversation_checkpoint`。
 
 ---
 

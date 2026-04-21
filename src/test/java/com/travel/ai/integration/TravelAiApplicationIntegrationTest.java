@@ -169,6 +169,11 @@ class TravelAiApplicationIntegrationTest {
                 String.class,
                 conv);
         assertThat(lastStage).isNotBlank();
+        String querySha = jdbcTemplate.queryForObject(
+                "SELECT detail->>'query_sha256' FROM eval_conversation_checkpoint WHERE conversation_id = ?",
+                String.class,
+                conv);
+        assertThat(querySha).isNotBlank().hasSize(64);
         jdbcTemplate.update("DELETE FROM eval_conversation_checkpoint WHERE conversation_id = ?", conv);
     }
 
