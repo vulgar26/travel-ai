@@ -21,6 +21,7 @@
 | E7 证据 | `retrieval_hit_id_hashes`, `retrieval_hit_id_hash_alg`, `retrieval_hit_id_hash_key_derivation`, `retrieval_candidate_limit_n`, `retrieval_candidate_total`, `canonical_hit_id_scheme` | membership 对账 |
 | 安全短路 | `eval_safety_rule_id`（与 `low_confidence_reasons` 等） | 仅 SafetyGate 命中时 |
 | Reflection stub | `recovery_action`, `self_check` | 受 `app.eval.reflection-meta-enabled` 控制 |
+| 配置快照（可选明文） | `config_snapshot`（`Map`，与 `config_snapshot_hash` 同源键） | 仅 **`app.eval.config-snapshot-meta-enabled=true`** |
 
 以上已覆盖 P1-0 文案中的大量「**可观测快照**」子集（阶段、工具、超时、plan、检索证据、安全归因）。
 
@@ -30,7 +31,7 @@
 
 | SSOT / 叙述项 | 当前状态 | 建议下一小步（按风险从低到高） |
 |---------------|----------|----------------------------------|
-| **`config_snapshot_json` / `config_snapshot_id`** | **已做（hash）**：新增 `meta.config_snapshot_hash`（含 `alg/scope`），覆盖 `app.agent.*` 与 `app.eval.*` 的白名单键；仍未输出明文 JSON | 后续如需可回放明细，再加小型 `meta.config_snapshot`（严格白名单，不含密钥） |
+| **`config_snapshot_json` / `config_snapshot_id`** | **已做（hash）** + **可选明文对象**：`meta.config_snapshot_hash`（含 `alg/scope`）；当 **`app.eval.config-snapshot-meta-enabled=true`** 时额外写入 **`meta.config_snapshot`**（与 hash 同源的 `Map<String,String>` 白名单键值，默认 **false** 防 meta 膨胀） | 后续：如需独立 `config_snapshot_id`（外存引用）再扩展 |
 | **统一 `context_truncated`**（历史 / 检索 / 工具块总预算） | **已做（评测路径）**：新增 `meta.context_truncated` + `meta.context_truncation_reasons[]`（当前覆盖 `sources_snippet_truncated` 与 `tool_output_truncated`） | 后续可扩展到历史对话截断 / promptBase 截断等更“总预算”的场景 |
 | **显式 token 计数**（`prompt_tokens` 等） | **组合模式落地**：默认离线近似（`meta.context_*` + `token_source=estimate`）；当请求 `llm_mode=real` 且服务端 `app.eval.llm-real-enabled=true` 时，评测口触发一次真实 LLM 调用并 best-effort 写入 `meta.prompt_tokens/completion_tokens/total_tokens`（`token_source=provider`）。默认还要求请求体 `eval_tags` 命中配置前缀（默认 `cost/`，见 `app.eval.llm-real-require-tag-match` / `llm-real-required-tag-prefixes`），否则跳过探针并写 `provider_usage_failure_reason=tag_gate_no_tags|tag_gate_no_match`。另：`meta.provider_usage_available` / `timeout|no_usage|error|no_client` 等。主产品（SSE）也会在日志输出 `[usage]`（反射提取，失败则回退估算）。 | **已定稿**：跑法/成本/合规见 [**`LLM_REAL_USAGE_RUNBOOK.md`**](LLM_REAL_USAGE_RUNBOOK.md) |
 | **回放 / 断点恢复**（`plan_raw_hash`、按 `conversationId` 恢复 stage） | **未**做 | 独立里程碑；先文档与表结构，再实现 |
@@ -44,6 +45,7 @@
 1. 缺口盘点与链接进 `README` / `UPGRADE_PLAN` / `travel-ai-upgrade` —— **已完成**。  
 2. **`context_truncated` + 原因列表**：仅评测路径、仅截断可客观判定处（如 `sources[].snippet` 达 300、或工具输出截断处统一 OR）—— **已完成**。  
 3. **`config_snapshot_hash` 或小 JSON**：从 `Environment` / `AppAgentProperties` 序列化白名单键 —— **已完成（hash）**。  
-4. **Token 或字符预算**：先落字符级近似（趋势/异常检测），后续再决定是否接 tokenizer 真值 —— **已完成（近似）**。
+4. **Token 或字符预算**：先落字符级近似（趋势/异常检测），后续再决定是否接 tokenizer 真值 —— **已完成（近似）**。  
+5. **可选 `meta.config_snapshot` 明文键值**：与 `config_snapshot_hash` 同源白名单，**`app.eval.config-snapshot-meta-enabled`** 控制 —— **已完成**（见 `EvalChatConfigSnapshotMetaMvcTest`）。
 
 每步单独 PR：便于 `EvalChatControllerTest` 与 `run.report` 回归。

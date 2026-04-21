@@ -51,6 +51,12 @@ public class AppEvalProperties {
      */
     private List<String> llmRealRequiredTagPrefixes;
 
+    /**
+     * 是否在评测响应 {@code meta} 中额外写入 {@code config_snapshot}（与 {@code config_snapshot_hash} 计算用字符串同源的键值映射）。\n
+     * 默认 {@code false}：避免 meta 膨胀、以及与仅比对 hash 的旧 harness 产生噪声差异。
+     */
+    private boolean configSnapshotMetaEnabled = false;
+
     public String getGatewayKey() {
         return gatewayKey != null ? gatewayKey : "";
     }
@@ -131,5 +137,13 @@ public class AppEvalProperties {
                 .filter(s -> !s.isEmpty())
                 .toList();
         return cleaned.isEmpty() ? List.of("cost/") : Collections.unmodifiableList(cleaned);
+    }
+
+    public boolean isConfigSnapshotMetaEnabled() {
+        return configSnapshotMetaEnabled;
+    }
+
+    public void setConfigSnapshotMetaEnabled(boolean configSnapshotMetaEnabled) {
+        this.configSnapshotMetaEnabled = configSnapshotMetaEnabled;
     }
 }

@@ -110,6 +110,6 @@ Authorization: Bearer <JWT 或 eval 注入主体>
 
 ## 9. 相关文档
 
-- **`README.md`**：`app.eval.*` 表格。  
+- **`README.md`**：`app.eval.*` 表格（含 **`config-snapshot-meta-enabled`**：可选 **`meta.config_snapshot`** 明文键值）。  
 - **`docs/eval/P1_HARNESS_GAP.md`**：与其它 `meta` 字段的对照。  
 - **`docs/travel-ai-upgrade.md`**：SSOT 摘要中的「评测口 token / usage」条。

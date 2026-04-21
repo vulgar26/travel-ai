@@ -166,6 +166,7 @@ npm run dev
 | `app.eval.llm-real-timeout-ms` | 评测口 real LLM “usage 探针” 的额外超时上限（毫秒）；避免为了拿 usage 拖慢整段评测（默认 1200） |
 | `app.eval.llm-real-require-tag-match` | 为 **true**（默认）时：仅当请求体 `eval_tags` 中至少一条以 `app.eval.llm-real-required-tag-prefixes` 某一前缀开头时才触发探针；避免跑批全量计费 |
 | `app.eval.llm-real-required-tag-prefixes` | 与上一项联用的前缀列表（YAML 数组）；省略时默认仅 `cost/`（评测平台可对抽样行打 `cost/...` 类 tag） |
+| `app.eval.config-snapshot-meta-enabled` | 为 **true** 时在评测响应 **`meta.config_snapshot`** 中写入与 **`config_snapshot_hash`** 同源的键值对象（字符串值）；默认 **false** |
 
 开启 **`llm-real-enabled`** 做 provider usage 对账前，请先读 **[`docs/eval/LLM_REAL_USAGE_RUNBOOK.md`](docs/eval/LLM_REAL_USAGE_RUNBOOK.md)**（抽样、`eval_tags`、归因码与合规）。
 

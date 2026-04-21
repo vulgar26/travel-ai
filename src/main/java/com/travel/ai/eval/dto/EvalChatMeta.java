@@ -72,6 +72,12 @@ public class EvalChatMeta {
     private String configSnapshotHashScope;
 
     /**
+     * 可选：与 {@link #configSnapshotHash} 同源的白名单配置键值（值均为字符串），便于人机可读对账。\n
+     * 受 {@code app.eval.config-snapshot-meta-enabled} 控制；默认不出现。
+     */
+    private Map<String, String> configSnapshot;
+
+    /**
      * 近似的上下文规模统计（字符数）：用于回归时观察“上下文突然变短/变长”。
      * <p>
      * 说明：这是<strong>字符级</strong>近似统计，不等价于供应商返回的 token 计数；用于趋势与异常检测。
@@ -326,6 +332,14 @@ public class EvalChatMeta {
 
     public void setConfigSnapshotHashScope(String configSnapshotHashScope) {
         this.configSnapshotHashScope = configSnapshotHashScope;
+    }
+
+    public Map<String, String> getConfigSnapshot() {
+        return configSnapshot;
+    }
+
+    public void setConfigSnapshot(Map<String, String> configSnapshot) {
+        this.configSnapshot = configSnapshot;
     }
 
     public Integer getContextCharCount() {

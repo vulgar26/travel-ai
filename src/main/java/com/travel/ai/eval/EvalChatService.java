@@ -158,14 +158,15 @@ public class EvalChatService {
     }
 
     /**
-     * P1-0 harness：用固定白名单键拼出稳定快照串并取 SHA-256。\n
-     * 仅输出 hash，不输出明文配置（避免泄露与体积膨胀）。
+     * P1-0 harness：用固定白名单键拼出稳定快照串并取 SHA-256；可选将同源键值写入 {@code meta.config_snapshot}。\n
+     * 密钥类配置永不进入快照；明文对象受 {@code app.eval.config-snapshot-meta-enabled} 控制（默认关）。
      */
     private void stampConfigSnapshotHashOnMeta(EvalChatMeta meta) {
         if (meta == null) {
             return;
         }
-        String snapshot = buildConfigSnapshotString();
+        LinkedHashMap<String, String> map = buildConfigSnapshotMap();
+        String snapshot = canonicalConfigSnapshotString(map);
         if (snapshot.isBlank()) {
             return;
         }
@@ -176,26 +177,37 @@ public class EvalChatService {
         meta.setConfigSnapshotHash(hash);
         meta.setConfigSnapshotHashAlg("SHA-256");
         meta.setConfigSnapshotHashScope("app.agent.* + app.eval.* (safe whitelist)");
+        if (appEvalProperties.isConfigSnapshotMetaEnabled()) {
+            meta.setConfigSnapshot(Collections.unmodifiableMap(new LinkedHashMap<>(map)));
+        }
     }
 
-    private String buildConfigSnapshotString() {
-        // 只选择“对行为/验收门槛有影响”的键；严禁把密钥类配置写入 snapshot 明文（即使最终只 hash）。
-        // 采用固定顺序拼接，保证 hash 稳定。
-        StringBuilder sb = new StringBuilder();
-        sb.append("app.agent.total-timeout-ms=").append(appAgentProperties.getTotalTimeout().toMillis()).append('\n');
-        sb.append("app.agent.max-steps=").append(appAgentProperties.getMaxSteps()).append('\n');
-        sb.append("app.agent.tool-timeout-ms=").append(appAgentProperties.getToolTimeout().toMillis()).append('\n');
-        sb.append("app.agent.llm-stream-timeout-ms=").append(appAgentProperties.getLlmStreamTimeout().toMillis()).append('\n');
-
-        sb.append("app.eval.tool-timeout-ms=").append(appEvalProperties.getToolTimeoutMs()).append('\n');
-        sb.append("app.eval.reflection-meta-enabled=").append(appEvalProperties.isReflectionMetaEnabled()).append('\n');
-        sb.append("app.eval.stub-work-sleep-ms=").append(appEvalProperties.getStubWorkSleepMs()).append('\n');
-        sb.append("app.eval.llm-real-enabled=").append(appEvalProperties.isLlmRealEnabled()).append('\n');
-        sb.append("app.eval.llm-real-timeout-ms=").append(appEvalProperties.getLlmRealTimeoutMs()).append('\n');
-        sb.append("app.eval.llm-real-require-tag-match=").append(appEvalProperties.isLlmRealRequireTagMatch()).append('\n');
+    /**
+     * 与 {@link #canonicalConfigSnapshotString} 键序一致；仅含非密钥白名单项（与 hash 同源）。
+     */
+    private LinkedHashMap<String, String> buildConfigSnapshotMap() {
+        LinkedHashMap<String, String> m = new LinkedHashMap<>();
+        m.put("app.agent.total-timeout-ms", Long.toString(appAgentProperties.getTotalTimeout().toMillis()));
+        m.put("app.agent.max-steps", Integer.toString(appAgentProperties.getMaxSteps()));
+        m.put("app.agent.tool-timeout-ms", Long.toString(appAgentProperties.getToolTimeout().toMillis()));
+        m.put("app.agent.llm-stream-timeout-ms", Long.toString(appAgentProperties.getLlmStreamTimeout().toMillis()));
+        m.put("app.eval.tool-timeout-ms", Long.toString(appEvalProperties.getToolTimeoutMs()));
+        m.put("app.eval.reflection-meta-enabled", Boolean.toString(appEvalProperties.isReflectionMetaEnabled()));
+        m.put("app.eval.stub-work-sleep-ms", Long.toString(appEvalProperties.getStubWorkSleepMs()));
+        m.put("app.eval.llm-real-enabled", Boolean.toString(appEvalProperties.isLlmRealEnabled()));
+        m.put("app.eval.llm-real-timeout-ms", Long.toString(appEvalProperties.getLlmRealTimeoutMs()));
+        m.put("app.eval.llm-real-require-tag-match", Boolean.toString(appEvalProperties.isLlmRealRequireTagMatch()));
         List<String> prefixSnap = new ArrayList<>(appEvalProperties.effectiveLlmRealRequiredTagPrefixes());
         Collections.sort(prefixSnap);
-        sb.append("app.eval.llm-real-required-tag-prefixes=").append(String.join(",", prefixSnap)).append('\n');
+        m.put("app.eval.llm-real-required-tag-prefixes", String.join(",", prefixSnap));
+        return m;
+    }
+
+    private static String canonicalConfigSnapshotString(LinkedHashMap<String, String> map) {
+        StringBuilder sb = new StringBuilder();
+        for (var e : map.entrySet()) {
+            sb.append(e.getKey()).append('=').append(e.getValue()).append('\n');
+        }
         return sb.toString();
     }
 

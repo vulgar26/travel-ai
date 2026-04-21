@@ -140,6 +140,8 @@ app:
     # 与上一项联用：任一 eval_tag 以列表中任一前缀开头则允许探针；省略时默认仅 cost/
     # llm-real-required-tag-prefixes:
     #   - cost/
+    # 是否在 meta 中额外写入 config_snapshot 对象（与 config_snapshot_hash 同源白名单；默认 false）
+    config-snapshot-meta-enabled: false
   agent:
     plan-stage:
       # 主线 PLAN 是否调用 LLM 产出 JSON（集成测试默认关，见 application-test.yml）
