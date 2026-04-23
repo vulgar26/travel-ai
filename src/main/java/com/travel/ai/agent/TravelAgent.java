@@ -79,6 +79,15 @@ public class TravelAgent {
     /** 固定流水线阶段数：PLAN、RETRIEVE、TOOL、GUARD、WRITE（与 app.agent.max-steps 校验一致）。 */
     private static final int FIXED_PIPELINE_STAGE_COUNT = 5;
 
+    /** SSE {@code event:error}：{@code app.agent.max-steps} 小于固定流水线阶段数。 */
+    public static final String ERROR_CODE_SSE_AGENT_CONFIG = "AGENT_CONFIG_ERROR";
+    /** SSE {@code event:error}：同步编排（{@link #runLinearStages}）抛出的异常。 */
+    public static final String ERROR_CODE_SSE_AGENT_PIPELINE = "AGENT_PIPELINE_ERROR";
+    /** SSE {@code event:error}：Reactor 流式链路中非整轮超时的异常。 */
+    public static final String ERROR_CODE_SSE_AGENT_STREAM = "AGENT_STREAM_ERROR";
+    /** SSE {@code event:error}：整轮墙钟超时（与 {@link #chat} 外层 {@code .timeout(total)} 对齐）。 */
+    public static final String ERROR_CODE_SSE_AGENT_TOTAL_TIMEOUT = "AGENT_TOTAL_TIMEOUT";
+
     private final ChatClient chatClient;
     private final ChatMemory chatMemory;
     private final VectorStore vectorStore;
@@ -174,9 +183,22 @@ public class TravelAgent {
         if (agentMaxSteps < FIXED_PIPELINE_STAGE_COUNT) {
             log.error("[agent] app.agent.max-steps={} < fixed_pipeline_steps={} requestId={}",
                     agentMaxSteps, FIXED_PIPELINE_STAGE_COUNT, requestId);
-            return Flux.just(ServerSentEvent.<String>builder()
-                            .data("【系统提示】服务端配置 app.agent.max-steps 过小，无法完成本轮编排，请联系管理员。")
-                            .build())
+            Flux<ServerSentEvent<String>> err = Flux.just(ServerSentEvent.<String>builder()
+                    .event("error")
+                    .data(SseControlEvent.error(
+                            requestId,
+                            ERROR_CODE_SSE_AGENT_CONFIG,
+                            "服务端配置 app.agent.max-steps 过小，无法完成本轮编排，请联系管理员。"
+                    ).toSseJson())
+                    .build());
+            Flux<ServerSentEvent<String>> fallback = Flux.just(ServerSentEvent.<String>builder()
+                    .data("【系统提示】服务端配置 app.agent.max-steps 过小，无法完成本轮编排，请联系管理员。")
+                    .build());
+            Flux<ServerSentEvent<String>> done = Flux.just(ServerSentEvent.<String>builder()
+                    .event("done")
+                    .data(SseControlEvent.done(requestId).toSseJson())
+                    .build());
+            return Flux.concat(err, fallback, done)
                     .doFinally(signalType -> MDC.remove("requestId"));
         }
 
@@ -195,7 +217,7 @@ public class TravelAgent {
                     .event("error")
                     .data(SseControlEvent.error(
                             requestId,
-                            "AGENT_ERROR",
+                            ERROR_CODE_SSE_AGENT_PIPELINE,
                             "服务端处理异常，请稍后重试。"
                     ).toSseJson())
                     .build());
@@ -268,7 +290,7 @@ public class TravelAgent {
                                     .event("error")
                                     .data(SseControlEvent.error(
                                             requestId,
-                                            "AGENT_TOTAL_TIMEOUT",
+                                            ERROR_CODE_SSE_AGENT_TOTAL_TIMEOUT,
                                             "本轮对话处理超时，请简化问题后重试。"
                                     ).toSseJson())
                                     .build());
@@ -283,7 +305,7 @@ public class TravelAgent {
                                     .event("error")
                                     .data(SseControlEvent.error(
                                             requestId,
-                                            "AGENT_ERROR",
+                                            ERROR_CODE_SSE_AGENT_STREAM,
                                             "服务端处理异常，请稍后重试。"
                                     ).toSseJson())
                                     .build());
