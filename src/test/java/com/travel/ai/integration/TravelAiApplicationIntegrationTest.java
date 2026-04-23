@@ -279,4 +279,41 @@ class TravelAiApplicationIntegrationTest {
         assertThat(toolScenario).isEqualTo("success");
         jdbcTemplate.update("DELETE FROM eval_conversation_checkpoint WHERE conversation_id = ?", conv);
     }
+
+    /**
+     * 第一次：RAG stub 在 RETRIEVE 后短路并写入断点（含空证据列表）；第二次：同会话同 query 应续跑并跳过重复检索门控，进入 TOOL 及之后阶段。
+     */
+    @Test
+    void evalCheckpointResumeAfterRagEmptyStubWithSameConversation() throws Exception {
+        String conv = "it-ckpt-resume-rag-" + UUID.randomUUID();
+        String q = "eval-resume-after-rag-empty-" + UUID.randomUUID();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-Eval-Gateway-Key", "it-eval-gateway-key");
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("query", q);
+        body.put("mode", "EVAL");
+        body.put("conversation_id", conv);
+        body.put("eval_rag_scenario", "empty");
+
+        ResponseEntity<String> res1 = restTemplate.postForEntity(
+                "/api/v1/eval/chat",
+                new HttpEntity<>(objectMapper.writeValueAsString(body), headers),
+                String.class);
+        assertThat(res1.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(res1.getBody()).isNotNull().contains("RETRIEVE_EMPTY");
+
+        ResponseEntity<String> res2 = restTemplate.postForEntity(
+                "/api/v1/eval/chat",
+                new HttpEntity<>(objectMapper.writeValueAsString(body), headers),
+                String.class);
+        assertThat(res2.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(res2.getBody()).isNotNull()
+                .contains("resumed")
+                .contains("\"checkpoint_evidence_reused\":true")
+                .contains("TOOL")
+                .doesNotContain("EVAL_CHECKPOINT_RESUMED_EXHAUSTED");
+
+        jdbcTemplate.update("DELETE FROM eval_conversation_checkpoint WHERE conversation_id = ?", conv);
+    }
 }

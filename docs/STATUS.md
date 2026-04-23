@@ -1,6 +1,6 @@
 # 项目现状（以代码为准）
 
-**更新时间**：2026-04-21  
+**更新时间**：2026-04-23  
 **仓库**：`travel-ai-planner`  
 **实现真源**：`src/main/java`、`src/main/resources/application.yml`  
 **与 Vagent 计划对照**：[`docs/IMPLEMENTATION_MATRIX.md`](IMPLEMENTATION_MATRIX.md)（逐项对应 `travel-ai-upgrade.md` 类目标，含「已做 / 未做 / 偏差」）
@@ -26,7 +26,7 @@ Spring Boot 3 + Spring AI（DashScope）的 **出行规划演示后端**：**JWT
 | 限流 | Bucket4j：`app.rate-limit.chat.*`、`app.rate-limit.login.*`；超额 **429** JSON 与鉴权同形（`error`+`message`，`JsonApiErrorSupport`） |
 | 长期画像 | Postgres `user_profile`；`GET/PUT/PATCH/DELETE /travel/profile`（删除可选 `clearChatMemory` 清 Redis 会话）；`app.memory.long-term` 控制是否注入主线 prompt；**从对话抽取**（`ProfileExtractionService` + `POST/GET/POST/DELETE …/extract-suggestion|pending-extraction|confirm-extraction`）；`app.memory.auto-extract.after-chat` 可选在 SSE 完成后异步写待确认或直接落库；Redis 会话仍为短期记忆（TTL 见 `RedisChatMemory`） |
 | 评测 | `EvalChatService` 等：plan 解析 repair once、TOOL/RAG/safety stub、`meta` 含 `low_confidence_reasons`、**`recovery_action` / `self_check`（reflection stub）**、E7 membership |
-| 评测回放（进行中） | Postgres **`eval_conversation_checkpoint`**（Flyway **V3**）：`EvalCheckpointRepository`；评测带 **`conversation_id`** 时在 **`EvalChatService`** 末尾 UPSERT；**续跑读路径仍待**，见 [`eval/EVAL_REPLAY_CHECKPOINT.md`](eval/EVAL_REPLAY_CHECKPOINT.md) |
+| 评测回放（P1-0） | Postgres **`eval_conversation_checkpoint`**（Flyway **V3**）：写库 **UPSERT** + 读库 **plan 指纹**与 **`EVAL_CHECKPOINT_*`**；**stub 续跑**、**同 query 证据/工具快照复用**（含零命中空列表）、plan 不一致时 **不写库**；见 [`eval/EVAL_REPLAY_CHECKPOINT.md`](eval/EVAL_REPLAY_CHECKPOINT.md) |
 | 工程 | Docker Compose、Flyway、Actuator、Testcontainers 集成测试（含 eval 网关 401/200） |
 
 ---

@@ -440,6 +440,11 @@ public class EvalChatService {
             response.setSources(evidence.sources);
         }
 
+        // 续跑且已从断点复用检索快照时，不再用同一套「检索后」确定性门控卡第二次请求（否则会永远停在 RETRIEVE）。
+        final boolean skipDuplicateRetrieveGates =
+                checkpointResumeLastInclusiveIndex != null
+                        && Boolean.TRUE.equals(meta.getCheckpointEvidenceReused());
+
         Optional<EvalQuerySafetyPolicy.Decision> safety = EvalQuerySafetyPolicy.evaluate(request.getQuery());
         if (safety.isPresent()) {
             EvalQuerySafetyPolicy.Decision d = safety.get();
@@ -492,57 +497,59 @@ public class EvalChatService {
             }
         }
 
-        // 业务侧“空命中”兜底门控（不依赖 eval_rag_scenario）；避免在无证据时强答/编造引用。
-        if (physical.runRetrieve() && meta.getRetrieveHitCount() != null && meta.getRetrieveHitCount() == 0) {
-            meta.setStageOrder(List.of("PLAN", "RETRIEVE"));
-            meta.setStepCount(2);
-            meta.setLowConfidence(true);
-            meta.setLowConfidenceReasons(EvalRagGateScenarios.REASONS_EMPTY_HITS);
-            response.setBehavior("clarify");
-            response.setErrorCode(EvalRagGateScenarios.ERROR_CODE_RETRIEVE_EMPTY);
-            response.setAnswer("检索零命中：请补充关键词/范围/上下文，或提供可引用资料后再继续。");
-            appendPolicyEvent(meta, "rag_gate", PolicyStageAnchor.POST_RETRIEVE.wireValue(), "clarify", "business_empty_hits",
-                    EvalRagGateScenarios.ERROR_CODE_RETRIEVE_EMPTY);
-            return complete(response, request, membershipCtx, evidence, planJsonForCheckpoint);
-        }
-
-        // 业务侧“低置信”兜底门控：短 query / 指代不明 等，避免同类输入漂移到 answer。
-        String q = request.getQuery().trim();
-        if (physical.runRetrieve()
-                && (q.length() <= 6 || q.contains("这个东西") || q.contains("那个项目") || q.contains("那个") && q.contains("项目"))) {
-            meta.setStageOrder(List.of("PLAN", "RETRIEVE"));
-            meta.setStepCount(2);
-            meta.setLowConfidence(true);
-            meta.setLowConfidenceReasons(EvalRagGateScenarios.REASONS_LOW_CONFIDENCE_BUSINESS);
-            response.setBehavior("clarify");
-            response.setErrorCode(EvalRagGateScenarios.ERROR_CODE_RETRIEVE_LOW_CONFIDENCE);
-            response.setAnswer("信息不足或指代不明：请补充目的地/日期/偏好，或说明你指的是哪个对象/项目。");
-            appendPolicyEvent(meta, "rag_gate", PolicyStageAnchor.POST_RETRIEVE.wireValue(), "clarify", "business_low_confidence_heuristic",
-                    EvalRagGateScenarios.ERROR_CODE_RETRIEVE_LOW_CONFIDENCE);
-            return complete(response, request, membershipCtx, evidence, planJsonForCheckpoint);
-        }
-
-        Kind ragKind = physical.runRetrieve() ? EvalRagGateScenarios.resolve(request) : null;
-        if (ragKind != null) {
-            meta.setStageOrder(List.of("PLAN", "RETRIEVE"));
-            meta.setStepCount(2);
-            meta.setLowConfidence(true);
-            if (ragKind == Kind.EMPTY_HITS) {
-                meta.setRetrieveHitCount(0);
+        if (!skipDuplicateRetrieveGates) {
+            // 业务侧“空命中”兜底门控（不依赖 eval_rag_scenario）；避免在无证据时强答/编造引用。
+            if (physical.runRetrieve() && meta.getRetrieveHitCount() != null && meta.getRetrieveHitCount() == 0) {
+                meta.setStageOrder(List.of("PLAN", "RETRIEVE"));
+                meta.setStepCount(2);
+                meta.setLowConfidence(true);
                 meta.setLowConfidenceReasons(EvalRagGateScenarios.REASONS_EMPTY_HITS);
+                response.setBehavior("clarify");
                 response.setErrorCode(EvalRagGateScenarios.ERROR_CODE_RETRIEVE_EMPTY);
-                response.setAnswer("检索零命中，已门控为澄清（评测 stub，P0 未启用 score 阈值）。");
-                appendPolicyEvent(meta, "rag_gate", PolicyStageAnchor.POST_RETRIEVE.wireValue(), "clarify", "stub_empty_hits",
+                response.setAnswer("检索零命中：请补充关键词/范围/上下文，或提供可引用资料后再继续。");
+                appendPolicyEvent(meta, "rag_gate", PolicyStageAnchor.POST_RETRIEVE.wireValue(), "clarify", "business_empty_hits",
                         EvalRagGateScenarios.ERROR_CODE_RETRIEVE_EMPTY);
-            } else {
-                meta.setRetrieveHitCount(1);
-                meta.setLowConfidenceReasons(EvalRagGateScenarios.REASONS_LOW_CONFIDENCE);
-                response.setAnswer("证据置信不足，已门控为澄清（评测 stub，P0 未启用 score 阈值）。");
-                appendPolicyEvent(meta, "rag_gate", PolicyStageAnchor.POST_RETRIEVE.wireValue(), "clarify", "stub_low_confidence",
-                        EvalRagGateScenarios.ERROR_CODE_RETRIEVE_LOW_CONFIDENCE);
+                return complete(response, request, membershipCtx, evidence, planJsonForCheckpoint);
             }
-            response.setBehavior("clarify");
-            return complete(response, request, membershipCtx, evidence, planJsonForCheckpoint);
+
+            // 业务侧“低置信”兜底门控：短 query / 指代不明 等，避免同类输入漂移到 answer。
+            String q = request.getQuery().trim();
+            if (physical.runRetrieve()
+                    && (q.length() <= 6 || q.contains("这个东西") || q.contains("那个项目") || q.contains("那个") && q.contains("项目"))) {
+                meta.setStageOrder(List.of("PLAN", "RETRIEVE"));
+                meta.setStepCount(2);
+                meta.setLowConfidence(true);
+                meta.setLowConfidenceReasons(EvalRagGateScenarios.REASONS_LOW_CONFIDENCE_BUSINESS);
+                response.setBehavior("clarify");
+                response.setErrorCode(EvalRagGateScenarios.ERROR_CODE_RETRIEVE_LOW_CONFIDENCE);
+                response.setAnswer("信息不足或指代不明：请补充目的地/日期/偏好，或说明你指的是哪个对象/项目。");
+                appendPolicyEvent(meta, "rag_gate", PolicyStageAnchor.POST_RETRIEVE.wireValue(), "clarify", "business_low_confidence_heuristic",
+                        EvalRagGateScenarios.ERROR_CODE_RETRIEVE_LOW_CONFIDENCE);
+                return complete(response, request, membershipCtx, evidence, planJsonForCheckpoint);
+            }
+
+            Kind ragKind = physical.runRetrieve() ? EvalRagGateScenarios.resolve(request) : null;
+            if (ragKind != null) {
+                meta.setStageOrder(List.of("PLAN", "RETRIEVE"));
+                meta.setStepCount(2);
+                meta.setLowConfidence(true);
+                if (ragKind == Kind.EMPTY_HITS) {
+                    meta.setRetrieveHitCount(0);
+                    meta.setLowConfidenceReasons(EvalRagGateScenarios.REASONS_EMPTY_HITS);
+                    response.setErrorCode(EvalRagGateScenarios.ERROR_CODE_RETRIEVE_EMPTY);
+                    response.setAnswer("检索零命中，已门控为澄清（评测 stub，P0 未启用 score 阈值）。");
+                    appendPolicyEvent(meta, "rag_gate", PolicyStageAnchor.POST_RETRIEVE.wireValue(), "clarify", "stub_empty_hits",
+                            EvalRagGateScenarios.ERROR_CODE_RETRIEVE_EMPTY);
+                } else {
+                    meta.setRetrieveHitCount(1);
+                    meta.setLowConfidenceReasons(EvalRagGateScenarios.REASONS_LOW_CONFIDENCE);
+                    response.setAnswer("证据置信不足，已门控为澄清（评测 stub，P0 未启用 score 阈值）。");
+                    appendPolicyEvent(meta, "rag_gate", PolicyStageAnchor.POST_RETRIEVE.wireValue(), "clarify", "stub_low_confidence",
+                            EvalRagGateScenarios.ERROR_CODE_RETRIEVE_LOW_CONFIDENCE);
+                }
+                response.setBehavior("clarify");
+                return complete(response, request, membershipCtx, evidence, planJsonForCheckpoint);
+            }
         }
 
         AtomicReference<EvalToolStageRunner.EvalToolInvocationResult> toolSlot = new AtomicReference<>();
@@ -723,6 +730,10 @@ public class EvalChatService {
         if (effectivePlanJsonUtf8 == null || effectivePlanJsonUtf8.isBlank()) {
             return;
         }
+        if (ERROR_CODE_EVAL_CHECKPOINT_PLAN_MISMATCH.equals(response.getErrorCode())) {
+            // 指纹不一致时不再覆盖断点行，避免把「旧进度」冲掉。
+            return;
+        }
         EvalChatMeta meta = response.getMeta();
         List<String> order = meta.getStageOrder();
         if (order == null || order.isEmpty()) {
@@ -752,13 +763,22 @@ public class EvalChatService {
         if (response.getErrorCode() != null && !response.getErrorCode().isBlank()) {
             detail.put("error_code", response.getErrorCode());
         }
-        boolean resumeEligible = !order.isEmpty() && "WRITE".equals(order.get(order.size() - 1));
-        detail.put("resume_eligible", resumeEligible);
-        if (evidence != null && evidence.retrievalHits() != null && !evidence.retrievalHits().isEmpty()) {
-            detail.put("evidence_retrieval_hits", evidence.retrievalHits());
+        boolean resumeEligible = false;
+        try {
+            PlanV1 pv = planParser.parse(effectivePlanJsonUtf8);
+            PlanPhysicalStagePolicy.PhysicalStageFlags pf = PlanPhysicalStagePolicy.resolve(pv);
+            List<String> projected = EvalLinearAgentPipeline.projectedFullStageOrder(pf);
+            int idx = projected.lastIndexOf(lastStage);
+            resumeEligible = idx >= 0 && idx < projected.size() - 1;
+        } catch (Exception e) {
+            log.debug("[eval] checkpoint_resume_eligible_parse_failed: {}", e.toString());
         }
-        if (evidence != null && evidence.sources() != null && !evidence.sources().isEmpty()) {
-            detail.put("evidence_sources", evidence.sources());
+        detail.put("resume_eligible", resumeEligible);
+        // 始终写入列表键（可为空），便于续跑时按 query 哈希复用「零命中」等快照。
+        if (evidence != null) {
+            detail.put("evidence_retrieval_hits",
+                    evidence.retrievalHits() != null ? evidence.retrievalHits() : List.of());
+            detail.put("evidence_sources", evidence.sources() != null ? evidence.sources() : List.of());
         }
         if (evidence != null) {
             detail.put("evidence_candidate_total", evidence.candidateTotal());
