@@ -50,6 +50,7 @@ import java.util.UUID;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import static com.travel.ai.tools.ToolExecutor.execute;
@@ -87,6 +88,10 @@ public class TravelAgent {
     public static final String ERROR_CODE_SSE_AGENT_STREAM = "AGENT_STREAM_ERROR";
     /** SSE {@code event:error}：整轮墙钟超时（与 {@link #chat} 外层 {@code .timeout(total)} 对齐）。 */
     public static final String ERROR_CODE_SSE_AGENT_TOTAL_TIMEOUT = "AGENT_TOTAL_TIMEOUT";
+    /** SSE {@code event:error}：LLM 子流 {@code .timeout(llm_stream)} 触发（与整轮 {@link #ERROR_CODE_SSE_AGENT_TOTAL_TIMEOUT} 区分）。 */
+    public static final String ERROR_CODE_SSE_AGENT_LLM_STREAM_TIMEOUT = "AGENT_LLM_STREAM_TIMEOUT";
+    /** SSE {@code event:error}：LLM 子流非超时异常（降级为占位文本前注入）。 */
+    public static final String ERROR_CODE_SSE_AGENT_LLM_STREAM_ERROR = "AGENT_LLM_STREAM_ERROR";
 
     private final ChatClient chatClient;
     private final ChatMemory chatMemory;
@@ -250,8 +255,21 @@ public class TravelAgent {
         ctx.stageEvents.add(StageEvent.start(StageName.WRITE, ctx.requestId));
         Flux<String> contentFlux = stageWrite(ctx, llmStreamTimeout, llmStartNs, firstLlmToken);
 
-        Flux<ServerSentEvent<String>> tokenEvents = contentFlux.map(chunk ->
-                ServerSentEvent.<String>builder().data(chunk).build());
+        AtomicBoolean llmStreamErrorSseEmitted = new AtomicBoolean(false);
+        Flux<ServerSentEvent<String>> tokenEvents = contentFlux.flatMap(chunk -> {
+            String code = ctx.llmStreamErrorCode.get();
+            if (code != null && llmStreamErrorSseEmitted.compareAndSet(false, true)) {
+                String msg = "当前 AI 响应较慢或出现异常，请稍后重试。";
+                return Flux.concat(
+                        Flux.just(ServerSentEvent.<String>builder()
+                                .event("error")
+                                .data(SseControlEvent.error(requestId, code, msg).toSseJson())
+                                .build()),
+                        Flux.just(ServerSentEvent.<String>builder().data(chunk).build())
+                );
+            }
+            return Flux.just(ServerSentEvent.<String>builder().data(chunk).build());
+        });
 
         Flux<ServerSentEvent<String>> planParseMetaFlux = Flux.just(buildPlanParseMetaEvent(ctx));
 
@@ -334,6 +352,15 @@ public class TravelAgent {
         }
         Throwable c = t.getCause();
         return c instanceof TimeoutException;
+    }
+
+    private static boolean hasTimeoutCause(Throwable t) {
+        for (Throwable x = t; x != null; x = x.getCause()) {
+            if (x instanceof TimeoutException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -779,6 +806,13 @@ public class TravelAgent {
         Flux<String> flux = streamSpec
                 .content()
                 .timeout(llmTimeout)
+                .doOnError(t -> {
+                    if (hasTimeoutCause(t)) {
+                        ctx.llmStreamErrorCode.set(ERROR_CODE_SSE_AGENT_LLM_STREAM_TIMEOUT);
+                    } else {
+                        ctx.llmStreamErrorCode.set(ERROR_CODE_SSE_AGENT_LLM_STREAM_ERROR);
+                    }
+                })
                 .onErrorResume(throwable -> {
                     log.error("调用 AI 超时或出错，conversationId={}, requestId={}, error={}",
                             ctx.conversationId, ctx.requestId, throwable.toString());
@@ -874,6 +908,11 @@ public class TravelAgent {
         final Map<StageName, Long> stageElapsedMs = new LinkedHashMap<>();
         /** 主线 SSE 可观测：策略/决策事件（与 eval meta.policy_events 同语义）。 */
         final List<PolicyEvent> policyEvents = new ArrayList<>();
+        /**
+         * WRITE 子流：LLM {@code .timeout(llm_stream)} 或其它异常经 onErrorResume 降级为占位文本时，
+         * 在 {@link #doOnError} 写入对应 {@code error_code}，供 {@link TravelAgent#chat} 注入 {@code event:error}。
+         */
+        final AtomicReference<String> llmStreamErrorCode = new AtomicReference<>();
 
         String currentUser;
         Filter.Expression userFilter;
