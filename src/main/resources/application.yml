@@ -102,6 +102,10 @@ app:
     require-registration: false
     # 聊天 query 最大字符数（GET 查询参数与 POST JSON body 共用上限）
     max-query-chars: 8192
+  # P1-3：POST /travel/feedback 长评截断与列表分页上限
+  feedback:
+    max-comment-chars: 2000
+    max-page-size: 100
   sse:
     # SSE 空闲心跳间隔（秒），发送标准 comment 行，避免网关/代理因长时间无字节而断开
     heartbeat-seconds: 15

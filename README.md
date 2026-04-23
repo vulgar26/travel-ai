@@ -103,6 +103,8 @@ npm run dev
 | `GET` | `/travel/profile/pending-extraction?conversationId=…` | Bearer JWT | 读取待确认的合并预览（无则 **404**） |
 | `POST` | `/travel/profile/confirm-extraction` | Bearer JWT | 体 `{"conversationId":"…"}` 将待确认合并结果写入 PG 并清除 pending |
 | `DELETE` | `/travel/profile/pending-extraction?conversationId=…` | Bearer JWT | 放弃待确认（**204**） |
+| `POST` | `/travel/feedback` | Bearer JWT | P1-3：提交反馈 JSON（`thumb`：`up` 或 `down`；`rating`：1–5；可选 `comment`、`conversation_id`、`eval_case_id`、`eval_tags[]`、`request_id`）；须至少填一类；**201** 返回 `id`、`created_at` |
+| `GET` | `/travel/feedback?limit=20&offset=0` | Bearer JWT | 当前用户反馈列表（snake_case） |
 | `POST` | `/travel/chat/{conversationId}` | Bearer JWT | **SSE**（`Accept: text/event-stream`）；`Content-Type: application/json`，体 `{"query":"..."}`（**推荐**；无 URL 长度限制、减少 query 出现在访问日志路径中的风险）；`conversationId` 规则同下；超长 `query` → **400**（见 `app.conversation.max-query-chars`） |
 | `GET` | `/travel/chat/{conversationId}?query=...` | Bearer JWT | **SSE**（同上）；**兼容保留**，响应带 `Deprecation: true`；新集成请改用 **POST** |
 | `POST` | `/api/v1/eval/chat` | **网关密钥** `X-Eval-Gateway-Key` + 已认证主体 | 评测用 **JSON**（非流式）；eval 侧另有 `X-Eval-Token` 等 membership 头，见 Vagent `eval-upgrade.md` |

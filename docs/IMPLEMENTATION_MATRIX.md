@@ -2,7 +2,7 @@
 
 **维护约定**：以 `src/main/java` 与 `application*.yml` 为真源；本文件随合入更新。**外部计划**路径：`D:\Projects\Vagent\plans\travel-ai-upgrade.md`（不在本仓库内，此处仅摘要对照）。
 
-**更新日期**：2026-04-23（§4：`POST /travel/chat` + `max-query-chars`；`docs/eval.md` 链至 **`LLM_REAL_USAGE_RUNBOOK`**；§5：429 限流体 `error`+`message`；**`meta.config_snapshot_id`**；可选 **`meta.config_snapshot`**；评测 **`meta.policy_events[]`**；**`context_truncation_reasons`** 含检索候选上限与改写截断；**Flyway V3** `eval_conversation_checkpoint`：**写库 + 读路径续跑**（plan 校验、`EVAL_CHECKPOINT_*`、`EvalLinearAgentPipeline` stub 续跑、证据快照含空列表、plan mismatch 不写库）；含历史 §4/§5 条目）
+**更新日期**：2026-04-23（§1：**P1-3** `user_feedback` + **`/travel/feedback`**；§4：`POST /travel/chat` + `max-query-chars`；`docs/eval.md` 链至 **`LLM_REAL_USAGE_RUNBOOK`**；§5：429 限流体 `error`+`message`；**`meta.config_snapshot_id`**；可选 **`meta.config_snapshot`**；评测 **`meta.policy_events[]`**；**`context_truncation_reasons`** 含检索候选上限与改写截断；**Flyway V3** `eval_conversation_checkpoint`：**写库 + 读路径续跑**；含历史 §4/§5 条目）
 
 ---
 
@@ -20,6 +20,7 @@
 | 零命中门控 | **已满足**：`RetrieveEmptyHitGate` + `app.rag.empty-hits-behavior` | `RetrieveEmptyHitGate.java`、`TravelAgent.java` |
 | 串行工具、熔断、限流 | **已满足**：天气路径使用 `ToolExecutor` + `ToolCircuitBreaker` + `ToolRateLimiter` | `com.travel.ai.tools.*`、`WeatherTool.java` |
 | P0 长期记忆 / 隐私：`user_profile`、删除权、最小化槽位、默认关闭注入；从对话抽取须可确认 | **已满足（基线 + 抽取）**：同上；**抽取**为无记忆 `profileExtractionChatClient` + `ChatMemory` 摘录；默认 `require-confirm` 仅 Redis pending，`confirm-extraction` 落库；`after-chat` 可选 | `ProfileExtraction*.java`、`ProfileExtractionChatClientConfig.java`、`UserProfilePendingExtractionStore.java`、`UserProfileController` |
+| P1-3 反馈闭环：`feedback` 表 + API；点赞/点踩/评分 + 可选文本；与 eval 标签/样例联动 | **已满足（基线）**：表 **`user_feedback`**（Flyway **V4**）；**`POST /travel/feedback`**（**201**）、**`GET /travel/feedback`**；JWT **`user_id`** 隔离；`app.feedback.*` | `FeedbackController.java`、`FeedbackService.java`、`FeedbackJdbcRepository.java`、`AppFeedbackProperties.java`、`V4__user_feedback.sql` |
 
 ---
 
