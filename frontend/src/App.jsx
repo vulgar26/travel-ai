@@ -1,385 +1,483 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  confirmPendingProfile,
+  createConversation,
+  discardPendingProfile,
+  extractProfileSuggestion,
+  getPendingProfile,
+  getProfile,
+  listFeedback,
+  login,
+  resetProfile,
+  streamChat,
+  submitFeedback,
+  uploadKnowledge,
+} from './api'
+import AgentTracePanel from './components/AgentTracePanel'
+import ChatWindow from './components/ChatWindow'
+import FeedbackPanel from './components/FeedbackPanel'
+import KnowledgeUpload from './components/KnowledgeUpload'
+import LoginPanel from './components/LoginPanel'
+import ProfilePanel from './components/ProfilePanel'
+import SourcesPanel from './components/SourcesPanel'
 import './App.css'
 
-/**
- * 解析 text/event-stream：识别 {@code event:} 与 {@code data:}；无 {@code event:} 时视为 {@code message}。
- * @param {(data: string) => void} onDataLine
- * @param {(line: string) => void} [onComment]
- * @param {(eventName: string, data: string) => void} [onNamedData] — 如 {@code plan_parse}
- */
-async function readSseStream(response, onDataLine, onComment, onNamedData) {
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buf = ''
-  let pendingEvent = ''
-  const dispatchData = (payload) => {
-    const name = pendingEvent || 'message'
-    if (name === 'message') {
-      onDataLine(payload)
-    } else if (onNamedData) {
-      onNamedData(name, payload)
+const DEFAULT_QUERY = '请基于我上传的资料，给我一份成都两天一夜旅行规划，包含行程、交通建议和注意事项。'
+
+function safeJson(data) {
+  try {
+    return JSON.parse(data)
+  } catch {
+    return null
+  }
+}
+
+function normalizeEventPayload(event, data) {
+  const parsed = safeJson(data)
+  return {
+    event,
+    raw: data,
+    data: parsed,
+    ...(parsed && typeof parsed === 'object' ? parsed : {}),
+  }
+}
+
+function isCitationText(text) {
+  return text.includes('【引用片段】') || text.includes('引用片段') || text.includes('銆愬紩鐢ㄧ墖娈')
+}
+
+function parseSourcesFromText(text) {
+  if (!text) return []
+  const body = text
+    .replace(/[-─━]{4,}/g, '')
+    .replace(/^.*(?:引用片段|銆愬紩鐢ㄧ墖娈).*$/m, '')
+    .trim()
+  if (!body || body.includes('未命中知识库') || body.includes('鏈懡涓')) return []
+
+  const blocks = body.split(/\n\s*\n/).map((item) => item.trim()).filter(Boolean)
+  return blocks.map((block, index) => {
+    const firstLine = block.split('\n')[0] || ''
+    const idMatch = firstLine.match(/id=([^\s]+)/)
+    const sourceMatch = firstLine.match(/(?:来源|source|source_name|鏉ユ簮)=([^\s]+)/i)
+    const scoreMatch = firstLine.match(/score=([^\s]+)/i)
+    const snippet = block
+      .split('\n')
+      .slice(firstLine.includes('id=') ? 1 : 0)
+      .join('\n')
+      .trim()
+    return {
+      title: sourceMatch?.[1] || idMatch?.[1] || `引用 ${index + 1}`,
+      snippet: snippet || block,
+      score: scoreMatch?.[1] ? `score ${scoreMatch[1]}` : '',
+      hit: idMatch?.[1] ? `id=${idMatch[1]}` : '',
     }
-    pendingEvent = ''
-  }
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buf += decoder.decode(value, { stream: true })
-    const parts = buf.split('\n')
-    buf = parts.pop() ?? ''
-    for (const raw of parts) {
-      const line = raw.replace(/\r$/, '')
-      if (line.trim() === '') {
-        pendingEvent = ''
-        continue
-      }
-      if (line.startsWith('event:')) {
-        pendingEvent = line.slice(6).trimStart()
-      } else if (line.startsWith('data:')) {
-        dispatchData(line.slice(5).trimStart())
-      } else if (line.startsWith(':')) {
-        onComment?.(line)
-      }
-    }
-  }
-  if (buf.trim()) {
-    const line = buf.replace(/\r$/, '')
-    if (line.startsWith('data:')) dispatchData(line.slice(5).trimStart())
-  }
+  })
+}
+
+function parseSourcesFromStructured(payload) {
+  if (!payload || typeof payload !== 'object') return []
+  const list = payload.sources || payload.citations || payload.citation || payload.retrieval_hits || []
+  const items = Array.isArray(list) ? list : [list]
+  return items
+    .filter(Boolean)
+    .map((item, index) => ({
+      title: item.title || item.file_name || item.fileName || item.source || item.source_name || item.id || `来源 ${index + 1}`,
+      snippet: item.snippet || item.text || item.content || item.preview || '',
+      score: item.score != null ? `score ${item.score}` : '',
+      hit: item.hit || item.rank || item.metadata ? JSON.stringify(item.metadata || item.hit || item.rank) : '',
+    }))
 }
 
 export default function App() {
   const [username, setUsername] = useState('demo')
   const [password, setPassword] = useState('demo123')
-  const [token, setToken] = useState(() => localStorage.getItem('token') ?? '')
+  const [token, setToken] = useState(() => localStorage.getItem('token') || '')
+  const [conversationId, setConversationId] = useState(() => localStorage.getItem('conversationId') || '')
+  const [query, setQuery] = useState(DEFAULT_QUERY)
 
-  const [conversationId, setConversationId] = useState(
-    () => localStorage.getItem('conversationId') ?? 'demo-conv',
-  )
-  const [query, setQuery] = useState('给我一份成都两天一夜行程')
-  const [output, setOutput] = useState('')
-  const [planParseInfo, setPlanParseInfo] = useState('')
-  const [status, setStatus] = useState('')
+  const [loginStatus, setLoginStatus] = useState('')
+  const [globalStatus, setGlobalStatus] = useState('')
   const [error, setError] = useState('')
-  const [uploadHint, setUploadHint] = useState('')
+  const [uploadResult, setUploadResult] = useState(null)
   const [uploading, setUploading] = useState(false)
 
+  const [messages, setMessages] = useState([])
+  const [streaming, setStreaming] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [sources, setSources] = useState([])
+  const [agentEvents, setAgentEvents] = useState([])
+  const [planParse, setPlanParse] = useState(null)
+  const [requestId, setRequestId] = useState('')
+  const [parseErrors, setParseErrors] = useState([])
+
+  const [profile, setProfile] = useState(null)
+  const [pendingProfile, setPendingProfile] = useState(null)
+  const [profileStatus, setProfileStatus] = useState('')
+  const [feedbackItems, setFeedbackItems] = useState([])
   const abortRef = useRef(null)
-  const fileInputRef = useRef(null)
 
-  const login = useCallback(async () => {
-    setError('')
-    setStatus('登录中…')
-    try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setStatus('')
-        setError(data.message ?? `登录失败 HTTP ${res.status}`)
-        return
-      }
-      const t = data.token
-      if (!t) {
-        setError('响应无 token')
-        setStatus('')
-        return
-      }
-      setToken(t)
-      localStorage.setItem('token', t)
-      try {
-        const cres = await fetch('/api/travel/conversations', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${t}` },
-        })
-        const cj = await cres.json().catch(() => ({}))
-        if (cres.ok && cj.conversationId) {
-          setConversationId(cj.conversationId)
-          localStorage.setItem('conversationId', cj.conversationId)
-        }
-      } catch {
-        /* 忽略：可继续用手动填写的 conversationId */
-      }
-      setStatus('已登录（token 已保存到浏览器 localStorage）')
-    } catch (e) {
-      setStatus('')
-      setError(e.message ?? String(e))
-    }
-  }, [username, password])
+  const loggedIn = Boolean(token)
+  const lastAssistant = useMemo(
+    () => [...messages].reverse().find((message) => message.role === 'assistant' && message.content),
+    [messages],
+  )
 
-  const logout = useCallback(() => {
-      setToken('')
-      localStorage.removeItem('token')
-      localStorage.removeItem('conversationId')
-      setStatus('已退出')
+  const showError = useCallback((err) => {
+    setError(err?.message || String(err))
   }, [])
 
-  const newConversation = useCallback(async () => {
-    setError('')
-    if (!token) {
-      setError('请先登录')
-      return
-    }
-    setStatus('创建会话…')
+  const refreshProfile = useCallback(async () => {
+    if (!token) return
     try {
-      const res = await fetch('/api/travel/conversations', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setError(data.message ?? `创建失败 HTTP ${res.status}`)
-        setStatus('')
-        return
+      const current = await getProfile(token)
+      setProfile(current)
+      setProfileStatus('画像已刷新。')
+      if (conversationId) {
+        try {
+          const pending = await getPendingProfile(token, conversationId)
+          setPendingProfile(pending)
+        } catch (err) {
+          if (err.status !== 404) setProfileStatus(err.message)
+          setPendingProfile(null)
+        }
       }
-      if (!data.conversationId) {
-        setError('响应无 conversationId')
-        setStatus('')
-        return
-      }
-      setConversationId(data.conversationId)
-      localStorage.setItem('conversationId', data.conversationId)
-      setStatus('已新建会话')
-    } catch (e) {
-      setError(e.message ?? String(e))
-      setStatus('')
+    } catch (err) {
+      setProfileStatus(err.message)
+    }
+  }, [conversationId, token])
+
+  const refreshFeedback = useCallback(async () => {
+    if (!token) return
+    try {
+      const data = await listFeedback(token, 5)
+      setFeedbackItems(data.items || [])
+    } catch {
+      setFeedbackItems([])
     }
   }, [token])
 
-  /** 与后端 KnowledgeController 一致：POST /knowledge/upload，表单字段 file，仅 .txt；响应为 JSON（message / error） */
-  const uploadKnowledge = useCallback(async () => {
+  useEffect(() => {
+    if (token) {
+      refreshProfile()
+      refreshFeedback()
+    }
+  }, [refreshFeedback, refreshProfile, token])
+
+  const handleLogin = useCallback(async () => {
     setError('')
-    setUploadHint('')
-    if (!token) {
-      setError('请先登录再上传')
-      return
+    setLoginStatus('登录中...')
+    try {
+      const auth = await login(username, password)
+      if (!auth.token) throw new Error('登录响应中没有 token。')
+      setToken(auth.token)
+      localStorage.setItem('token', auth.token)
+      const conversation = await createConversation(auth.token)
+      setConversationId(conversation.conversationId)
+      localStorage.setItem('conversationId', conversation.conversationId)
+      setLoginStatus('登录成功，已创建新会话。')
+    } catch (err) {
+      setLoginStatus('')
+      showError(err)
     }
-    const input = fileInputRef.current
-    const file = input?.files?.[0]
-    if (!file) {
-      setError('请选择 .txt 文件')
-      return
+  }, [password, showError, username])
+
+  const handleLogout = useCallback(() => {
+    abortRef.current?.abort()
+    setToken('')
+    setConversationId('')
+    setMessages([])
+    setSources([])
+    setAgentEvents([])
+    setPlanParse(null)
+    setRequestId('')
+    localStorage.removeItem('token')
+    localStorage.removeItem('conversationId')
+    setLoginStatus('已退出。')
+  }, [])
+
+  const handleNewConversation = useCallback(async () => {
+    setError('')
+    try {
+      const data = await createConversation(token)
+      setConversationId(data.conversationId)
+      localStorage.setItem('conversationId', data.conversationId)
+      setMessages([])
+      setSources([])
+      setAgentEvents([])
+      setPlanParse(null)
+      setRequestId('')
+      setGlobalStatus('已创建新会话。')
+    } catch (err) {
+      showError(err)
     }
+  }, [showError, token])
+
+  const handleUpload = useCallback(async (file) => {
+    setError('')
     if (!file.name.toLowerCase().endsWith('.txt')) {
-      setError('仅支持 .txt')
+      setError('当前上传接口仅支持 .txt 文件。')
       return
     }
     setUploading(true)
-    setStatus('上传中…')
     try {
-      const form = new FormData()
-      form.append('file', file)
-      const res = await fetch('/api/knowledge/upload', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: form,
-      })
-      const raw = await res.text()
-      let body
-      try {
-        body = JSON.parse(raw)
-      } catch {
-        body = { message: raw }
-      }
-      if (!res.ok) {
-        const msg = body?.message || body?.error || raw
-        setError(`上传失败 ${res.status}：${msg}`)
-        setStatus('')
-        return
-      }
-      setUploadHint(body?.message || raw)
-      setStatus('上传完成')
-      if (input) input.value = ''
-    } catch (e) {
-      setError(e.message ?? String(e))
-      setStatus('')
+      const result = await uploadKnowledge(token, file)
+      setUploadResult(result)
+      setGlobalStatus('知识上传完成。')
+    } catch (err) {
+      showError(err)
     } finally {
       setUploading(false)
     }
-  }, [token])
+  }, [showError, token])
 
-  const stopStream = useCallback(() => {
-    abortRef.current?.abort()
-    abortRef.current = null
-    setStatus((s) => (s.includes('流式') ? '已停止' : s))
+  const appendAssistant = useCallback((assistantId, chunk) => {
+    setMessages((current) => current.map((message) => (
+      message.id === assistantId ? { ...message, content: message.content + chunk } : message
+    )))
   }, [])
 
-  const startChat = useCallback(async () => {
-    setError('')
-    setOutput('')
-    setPlanParseInfo('')
-    if (!token) {
-      setError('请先登录')
+  const handleSseEvent = useCallback((assistantId, payload) => {
+    const event = payload.event || 'message'
+    const data = payload.data
+    const parsed = safeJson(data)
+
+    if (event === 'message') {
+      if (isCitationText(data)) {
+        const parsedSources = parseSourcesFromText(data)
+        if (parsedSources.length) setSources(parsedSources)
+      } else {
+        appendAssistant(assistantId, data)
+      }
       return
     }
-    stopStream()
-    const ac = new AbortController()
-    abortRef.current = ac
 
-    const url = `/api/travel/chat/${encodeURIComponent(conversationId)}`
+    const normalized = normalizeEventPayload(event, data)
+    if (parsed?.request_id || parsed?.requestId) setRequestId(parsed.request_id || parsed.requestId)
 
-    setStatus('连接 SSE…')
+    if (event === 'plan_parse') {
+      setPlanParse(parsed || { raw: data })
+      return
+    }
+    if (event === 'stage' || event === 'policy') {
+      setAgentEvents((current) => [...current, normalized])
+      return
+    }
+    if (event === 'source' || event === 'sources' || event === 'citation' || event === 'citations') {
+      const structuredSources = parseSourcesFromStructured(parsed)
+      if (structuredSources.length) setSources(structuredSources)
+      return
+    }
+    if (event === 'done') {
+      setStreaming(false)
+      setLoading(false)
+      setGlobalStatus('本轮回答完成。')
+      return
+    }
+    if (event === 'error') {
+      setAgentEvents((current) => [...current, normalized])
+      setError(parsed?.message || parsed?.error_code || data)
+    }
+  }, [appendAssistant])
+
+  const handleSend = useCallback(async () => {
+    setError('')
+    if (!token) {
+      setError('请先登录。')
+      return
+    }
+    if (!conversationId) {
+      setError('请先创建 conversationId。')
+      return
+    }
+
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+    const userId = crypto.randomUUID()
+    const assistantId = crypto.randomUUID()
+
+    setMessages((current) => [
+      ...current,
+      { id: userId, role: 'user', content: query.trim() },
+      { id: assistantId, role: 'assistant', content: '' },
+    ])
+    setSources([])
+    setAgentEvents([])
+    setPlanParse(null)
+    setParseErrors([])
+    setRequestId('')
+    setStreaming(true)
+    setLoading(true)
+    setGlobalStatus('正在连接 SSE...')
+
     try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          Accept: 'text/event-stream',
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ query }),
-        signal: ac.signal,
-      })
-      if (!res.ok) {
-        const txt = await res.text().catch(() => '')
-        setError(`请求失败 ${res.status} ${txt}`)
-        setStatus('')
-        return
-      }
-      setStatus('流式输出中…（可随时停止）')
-      await readSseStream(
-        res,
-        (data) => setOutput((prev) => prev + data),
-        () => {},
-        (eventName, data) => {
-          if (eventName === 'plan_parse') {
-            try {
-              const j = JSON.parse(data)
-              setPlanParseInfo(
-                `${j.plan_parse_outcome ?? '?'} · attempts ${j.plan_parse_attempts ?? '?'} · ${j.plan_parse_resolved ?? ''} · draft ${j.plan_draft_source ?? ''}`,
-              )
-            } catch {
-              setPlanParseInfo(data)
-            }
-          }
-        },
-      )
-      setStatus('流结束')
-    } catch (e) {
-      if (e.name === 'AbortError') {
-        setStatus('已取消')
+      await streamChat(token, conversationId, query.trim(), {
+        onEvent: (eventPayload) => handleSseEvent(assistantId, eventPayload),
+        onComment: () => {},
+        onParseError: (line) => setParseErrors((current) => [...current, line]),
+      }, controller.signal)
+      setStreaming(false)
+      setLoading(false)
+      setGlobalStatus('流式输出结束。')
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        setGlobalStatus('已停止本轮输出。')
       } else {
-        setError(e.message ?? String(e))
-        setStatus('')
+        showError(err)
       }
+      setStreaming(false)
+      setLoading(false)
     } finally {
       abortRef.current = null
     }
-  }, [conversationId, query, token, stopStream])
+  }, [conversationId, handleSseEvent, query, showError, token])
+
+  const handleStop = useCallback(() => {
+    abortRef.current?.abort()
+    abortRef.current = null
+    setStreaming(false)
+    setLoading(false)
+  }, [])
+
+  const handleExtractProfile = useCallback(async () => {
+    setProfileStatus('正在抽取画像建议...')
+    try {
+      const result = await extractProfileSuggestion(token, conversationId, true)
+      if (result.pendingSaved || result.pending_saved) {
+        const pending = await getPendingProfile(token, conversationId)
+        setPendingProfile(pending)
+        setProfileStatus('已生成待确认画像。')
+      } else {
+        setPendingProfile({
+          suggestedPatch: result.suggestedPatch || result.suggested_patch,
+          mergedPreview: result.mergedPreview || result.merged_preview,
+        })
+        setProfileStatus('已生成画像建议。若后端配置 require-confirm=false，可能已直接写入。')
+      }
+    } catch (err) {
+      setProfileStatus(err.message)
+    }
+  }, [conversationId, token])
+
+  const handleConfirmProfile = useCallback(async () => {
+    try {
+      const result = await confirmPendingProfile(token, conversationId)
+      setProfile(result)
+      setPendingProfile(null)
+      setProfileStatus('待确认画像已写入。')
+    } catch (err) {
+      setProfileStatus(err.message)
+    }
+  }, [conversationId, token])
+
+  const handleDiscardProfile = useCallback(async () => {
+    try {
+      await discardPendingProfile(token, conversationId)
+      setPendingProfile(null)
+      setProfileStatus('已忽略待确认画像。')
+    } catch (err) {
+      setProfileStatus(err.message)
+    }
+  }, [conversationId, token])
+
+  const handleResetProfile = useCallback(async () => {
+    try {
+      await resetProfile(token, conversationId, false)
+      setProfile({ schemaVersion: 1, profile: {} })
+      setPendingProfile(null)
+      setProfileStatus('画像已重置。')
+    } catch (err) {
+      setProfileStatus(err.message)
+    }
+  }, [conversationId, token])
+
+  const handleFeedback = useCallback(async (payload) => {
+    setError('')
+    try {
+      await submitFeedback(token, payload)
+      setGlobalStatus('反馈已提交。')
+      await refreshFeedback()
+    } catch (err) {
+      showError(err)
+    }
+  }, [refreshFeedback, showError, token])
 
   return (
-    <div className="app">
-      <header className="header">
-        <h1>Travel AI Planner</h1>
-        <p className="hint">
-          本页通过 Vite 代理访问后端{' '}
-          <code>/api → http://127.0.0.1:8081</code>。请先启动 Spring Boot（默认 8081），再{' '}
-          <code>npm run dev</code>。检索按当前登录用户隔离：需先<strong>上传 .txt 知识</strong>再提问，否则会显示「未命中知识库」。
-        </p>
+    <main className="app-shell">
+      <header className="hero">
+        <div>
+          <p className="eyebrow">Travel AI Planner</p>
+          <h1>AI 旅行规划助手</h1>
+          <p>展示后端已具备的登录鉴权、知识上传、RAG 流式聊天、Agent 阶段事件、用户画像和反馈闭环。</p>
+        </div>
+        <div className="hero-status">
+          <span>{globalStatus || '等待操作'}</span>
+          {error ? <strong>{error}</strong> : null}
+        </div>
       </header>
 
-      <section className="card">
-        <h2>登录</h2>
-        <div className="row">
-          <label>
-            用户名
-            <input value={username} onChange={(e) => setUsername(e.target.value)} />
-          </label>
-          <label>
-            密码
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </label>
-        </div>
-        <div className="actions">
-          <button type="button" onClick={login}>
-            登录并保存 Token
-          </button>
-          <button type="button" className="secondary" onClick={logout}>
-            退出
-          </button>
-        </div>
-        {token ? (
-          <p className="mono small">Token 已就绪（前 24 字符）：{token.slice(0, 24)}…</p>
-        ) : null}
-      </section>
-
-      <section className="card">
-        <h2>上传知识（.txt）</h2>
-        <p className="hint small" style={{ marginTop: 0 }}>
-          后端会分块并向量化入库；仅当 metadata 含当前用户的 <code>user_id</code> 时才会被检索命中。若库里是旧数据（空
-          metadata），请重新上传一次。
-        </p>
-        <div className="row" style={{ alignItems: 'flex-end' }}>
-          <label className="block" style={{ flex: 1, marginBottom: 0 }}>
-            选择文件
-            <input ref={fileInputRef} type="file" accept=".txt,text/plain" />
-          </label>
-        </div>
-        <div className="actions">
-          <button type="button" onClick={uploadKnowledge} disabled={!token || uploading}>
-            {uploading ? '上传中…' : '上传到知识库'}
-          </button>
-        </div>
-        {uploadHint ? <p className="status">{uploadHint}</p> : null}
-      </section>
-
-      <section className="card">
-        <h2>SSE 对话</h2>
-        <p className="hint small" style={{ marginTop: 0 }}>
-          登录成功后会向服务端申请 <code>conversationId</code>；生产若开启{' '}
-          <code>app.conversation.require-registration=true</code>，须使用已登记的 ID。
-        </p>
-        <div className="row">
-          <label>
-            conversationId
-            <input
-              value={conversationId}
-              onChange={(e) => setConversationId(e.target.value)}
-            />
-          </label>
-        </div>
-        <div className="actions">
-          <button type="button" className="secondary" onClick={newConversation} disabled={!token}>
-            新建会话（POST /travel/conversations）
-          </button>
-        </div>
-        <label className="block">
-          问题
-          <textarea
-            rows={3}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+      <div className="layout">
+        <div className="main-column">
+          <LoginPanel
+            username={username}
+            password={password}
+            token={token}
+            status={loginStatus}
+            onUsernameChange={setUsername}
+            onPasswordChange={setPassword}
+            onLogin={handleLogin}
+            onLogout={handleLogout}
           />
-        </label>
-        <div className="actions">
-          <button type="button" onClick={startChat} disabled={!token}>
-            开始流式输出（POST /travel/chat）
-          </button>
-          <button type="button" className="secondary" onClick={stopStream}>
-            停止
-          </button>
+          <KnowledgeUpload
+            disabled={!loggedIn}
+            uploading={uploading}
+            result={uploadResult}
+            onUpload={handleUpload}
+          />
+          <ChatWindow
+            conversationId={conversationId}
+            query={query}
+            messages={messages}
+            streaming={streaming}
+            loading={loading}
+            onConversationChange={(value) => {
+              setConversationId(value)
+              localStorage.setItem('conversationId', value)
+            }}
+            onQueryChange={setQuery}
+            onNewConversation={handleNewConversation}
+            onSend={handleSend}
+            onStop={handleStop}
+          />
         </div>
-      </section>
-
-      {planParseInfo ? (
-        <p className="mono small status" style={{ margin: '0 1rem' }} title="SSE event: plan_parse">
-          plan_parse: {planParseInfo}
-        </p>
-      ) : null}
-      {status ? <p className="status">{status}</p> : null}
-      {error ? <p className="error">{error}</p> : null}
-
-      <section className="card output">
-        <h2>输出</h2>
-        <pre className="stream">{output || '（等待流式文本…）'}</pre>
-      </section>
-    </div>
+        <aside className="side-column">
+          <AgentTracePanel
+            events={agentEvents}
+            planParse={planParse}
+            requestId={requestId}
+            parseErrors={parseErrors}
+          />
+          <SourcesPanel sources={sources} />
+          <ProfilePanel
+            profile={profile}
+            pending={pendingProfile}
+            status={profileStatus}
+            disabled={!loggedIn || !conversationId}
+            onRefresh={refreshProfile}
+            onExtract={handleExtractProfile}
+            onConfirm={handleConfirmProfile}
+            onDiscard={handleDiscardProfile}
+            onReset={handleResetProfile}
+          />
+          <FeedbackPanel
+            disabled={!loggedIn || !lastAssistant || streaming}
+            conversationId={conversationId}
+            requestId={requestId}
+            recentItems={feedbackItems}
+            onSubmit={handleFeedback}
+          />
+        </aside>
+      </div>
+    </main>
   )
 }

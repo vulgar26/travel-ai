@@ -4,7 +4,11 @@
 #   2) docker compose up -d --build
 #   3) 验收：curl http://localhost:8081/actuator/health
 #
-# 说明：宿主机端口 5433、6380 映射到容器内 5432、6379，避免与本机已安装的 PG/Redis 默认端口冲突
+# 说明：宿主机端口 5433 映射到 Postgres 5432。
+# Redis 映射到宿主机 16379，避免 Windows Hyper-V「排除端口段」占用 6379/6380 时 Docker bind 失败。
+# 本机 IDEA 跑 Spring 时请连 localhost:16379；compose 内服务仍通过 redis:6379 访问。
+#   ports:
+#     - "16379:6379"
 #
 # 拉取镜像：默认经 DaoCloud 代理（与 Dockerfile 策略一致），避免直连 docker.io 超时。
 # 若你在海外或代理可用，可在 .env 中设置：
@@ -34,7 +38,7 @@ services:
     image: ${REDIS_IMAGE:-docker.m.daocloud.io/library/redis:7-alpine}
     container_name: travel-redis
     ports:
-      - "6380:6379"
+      - "16379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s

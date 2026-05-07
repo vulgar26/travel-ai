@@ -107,4 +107,4 @@
 - 仓库根目录 `docker-compose.yml` 定义 **`app` + `postgres`（`pgvector/pgvector:pg16`）+ `redis`**，同一默认网络内通过服务名互访。
 - **库表结构**：由 **Flyway** 在应用启动时执行 `classpath:db/migration`（当前 **`V1__init_pgvector.sql`**：创建 `vector` 扩展与 **`vector_store`**，列与 `PgVectorStore` 一致）。
 - 环境变量通过 **`.env`**（由 `.env.example` 复制）注入 **`SPRING_DATASOURCE_*`、`SPRING_DATA_REDIS_*`、`APP_JWT_SECRET`、`SPRING_AI_DASHSCOPE_API_KEY`** 等，避免把密钥写进镜像。
-- 宿主机映射 **`8081`**（应用）、**`5433→5432`**（Postgres）、**`6380→6379`**（Redis），降低与本机已装数据库的端口冲突概率。
+- 宿主机映射 **`8081`**（应用）、**`5433→5432`**（Postgres）、**`16379→6379`**（Redis）。Redis 不使用宿主机 `6379`，避免 Windows Hyper-V 排除端口段导致 Docker bind 失败；compose 内服务仍通过 **`redis:6379`** 访问。
