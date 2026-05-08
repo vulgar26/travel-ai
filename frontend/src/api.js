@@ -60,6 +60,27 @@ export async function uploadKnowledge(token, file) {
   })
 }
 
+export async function listKnowledge(token) {
+  return requestJson('/travel/knowledge', {
+    headers: authHeaders(token),
+  })
+}
+
+export async function deleteKnowledge(token, fileId) {
+  await fetch(`${API_BASE}/travel/knowledge/${encodeURIComponent(fileId)}`, {
+    method: 'DELETE',
+    headers: authHeaders(token),
+  }).then(async (response) => {
+    if (!response.ok) {
+      const body = await parseJsonSafe(response)
+      const error = new Error(getErrorMessage(response.status, body))
+      error.status = response.status
+      error.body = body
+      throw error
+    }
+  })
+}
+
 export async function getProfile(token) {
   return requestJson('/travel/profile', {
     headers: authHeaders(token),

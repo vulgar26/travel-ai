@@ -82,6 +82,8 @@ npm run dev
 | `POST` | `/auth/login` | 登录并返回 JWT |
 | `POST` | `/travel/conversations` | 创建并登记 `conversationId` |
 | `POST` | `/knowledge/upload` | 上传 `.txt` 知识文件 |
+| `GET` | `/travel/knowledge` | 获取当前用户知识文件列表 |
+| `DELETE` | `/travel/knowledge/{fileId}` | 删除当前用户知识文件的向量 chunks |
 | `POST` | `/travel/chat/{conversationId}` | SSE 流式聊天，推荐使用 POST JSON |
 | `GET` | `/travel/profile` | 获取当前用户画像 |
 | `POST` | `/travel/profile/extract-suggestion` | 从会话中抽取画像建议 |

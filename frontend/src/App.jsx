@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   confirmPendingProfile,
   createConversation,
+  deleteKnowledge,
   discardPendingProfile,
   extractProfileSuggestion,
   getPendingProfile,
   getProfile,
+  listKnowledge,
   listFeedback,
   login,
   resetProfile,
@@ -16,6 +18,7 @@ import {
 import AgentTracePanel from './components/AgentTracePanel'
 import ChatWindow from './components/ChatWindow'
 import FeedbackPanel from './components/FeedbackPanel'
+import KnowledgeList from './components/KnowledgeList'
 import KnowledgeUpload from './components/KnowledgeUpload'
 import LoginPanel from './components/LoginPanel'
 import ProfilePanel from './components/ProfilePanel'
@@ -100,6 +103,9 @@ export default function App() {
   const [error, setError] = useState('')
   const [uploadResult, setUploadResult] = useState(null)
   const [uploading, setUploading] = useState(false)
+  const [knowledgeItems, setKnowledgeItems] = useState([])
+  const [knowledgeLoading, setKnowledgeLoading] = useState(false)
+  const [knowledgeStatus, setKnowledgeStatus] = useState('')
 
   const [messages, setMessages] = useState([])
   const [streaming, setStreaming] = useState(false)
@@ -156,12 +162,28 @@ export default function App() {
     }
   }, [token])
 
+  const refreshKnowledge = useCallback(async () => {
+    if (!token) return
+    setKnowledgeLoading(true)
+    try {
+      const data = await listKnowledge(token)
+      setKnowledgeItems(data.items || [])
+      setKnowledgeStatus('知识列表已刷新。')
+    } catch (err) {
+      setKnowledgeItems([])
+      setKnowledgeStatus(err.message)
+    } finally {
+      setKnowledgeLoading(false)
+    }
+  }, [token])
+
   useEffect(() => {
     if (token) {
       refreshProfile()
       refreshFeedback()
+      refreshKnowledge()
     }
-  }, [refreshFeedback, refreshProfile, token])
+  }, [refreshFeedback, refreshKnowledge, refreshProfile, token])
 
   const handleLogin = useCallback(async () => {
     setError('')
@@ -190,6 +212,8 @@ export default function App() {
     setAgentEvents([])
     setPlanParse(null)
     setRequestId('')
+    setKnowledgeItems([])
+    setKnowledgeStatus('')
     localStorage.removeItem('token')
     localStorage.removeItem('conversationId')
     setLoginStatus('已退出。')
@@ -222,13 +246,45 @@ export default function App() {
     try {
       const result = await uploadKnowledge(token, file)
       setUploadResult(result)
+      await refreshKnowledge()
       setGlobalStatus('知识上传完成。')
     } catch (err) {
-      showError(err)
+      const code = err.body?.error
+      if (err.status === 409 && code === 'DUPLICATE_KNOWLEDGE') {
+        setKnowledgeStatus(`该文件内容已上传：${err.body?.fileName || err.body?.fileId || ''}`)
+        await refreshKnowledge()
+      } else {
+        showError(err)
+      }
     } finally {
       setUploading(false)
     }
-  }, [showError, token])
+  }, [refreshKnowledge, showError, token])
+
+  const handleDeleteKnowledge = useCallback(async (fileId) => {
+    if (!fileId) return
+    const confirmed = window.confirm('删除只影响后续 RAG 检索，不删除历史对话和已生成回答。确认删除？')
+    if (!confirmed) return
+
+    setError('')
+    setKnowledgeStatus('正在删除知识文件...')
+    try {
+      await deleteKnowledge(token, fileId)
+      setKnowledgeStatus('知识文件已删除。')
+      setGlobalStatus('知识文件已删除。')
+      await refreshKnowledge()
+    } catch (err) {
+      const code = err.body?.error
+      if (err.status === 404 && code === 'KNOWLEDGE_FILE_NOT_FOUND') {
+        setKnowledgeStatus('知识文件不存在或已被删除，已刷新列表。')
+        await refreshKnowledge()
+      } else if (err.status === 409 && code === 'LEGACY_KNOWLEDGE_NOT_DELETABLE') {
+        setKnowledgeStatus('旧知识数据缺少 file_id，当前仅支持删除新上传的知识文件。')
+      } else {
+        setKnowledgeStatus(err.message)
+      }
+    }
+  }, [refreshKnowledge, token])
 
   const appendAssistant = useCallback((assistantId, chunk) => {
     setMessages((current) => current.map((message) => (
@@ -433,6 +489,14 @@ export default function App() {
             uploading={uploading}
             result={uploadResult}
             onUpload={handleUpload}
+          />
+          <KnowledgeList
+            disabled={!loggedIn}
+            loading={knowledgeLoading}
+            items={knowledgeItems}
+            status={knowledgeStatus}
+            onRefresh={refreshKnowledge}
+            onDelete={handleDeleteKnowledge}
           />
           <ChatWindow
             conversationId={conversationId}

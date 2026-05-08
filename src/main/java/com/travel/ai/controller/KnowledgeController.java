@@ -1,6 +1,7 @@
 package com.travel.ai.controller;
 
 import com.travel.ai.dto.KnowledgeUploadResult;
+import com.travel.ai.service.DuplicateKnowledgeException;
 import com.travel.ai.service.KnowledgeService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,8 +38,17 @@ public class KnowledgeController {
             body.put("ok", true);
             body.put("fileName", r.fileName());
             body.put("chunkCount", r.chunkCount());
+            body.put("fileId", r.fileId());
+            body.put("contentHash", r.contentHash());
             body.put("message", String.format("文档[%s]上传成功，共%d个知识块", r.fileName(), r.chunkCount()));
             return ResponseEntity.ok(body);
+        } catch (DuplicateKnowledgeException ex) {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("error", "DUPLICATE_KNOWLEDGE");
+            body.put("message", ex.getMessage() != null ? ex.getMessage() : "duplicate knowledge");
+            body.put("fileId", ex.getFileId());
+            body.put("fileName", ex.getFileName());
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(Map.of(
                     "error", "INVALID_UPLOAD",

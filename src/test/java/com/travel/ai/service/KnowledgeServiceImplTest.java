@@ -8,23 +8,29 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Collections;
+import java.util.HexFormat;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
-/**
- * 知识上传单测：上传逻辑从 {@link org.springframework.security.core.context.SecurityContext} 读取当前用户写入 metadata。
- * 本类为「纯 Mockito 单测」不启动 Spring 容器，故在 {@link #bindDemoUser()} 中手动挂载认证信息，
- * 语义上等价于集成环境下的已登录用户 demo（升级方案 P4-1）。
- */
 class KnowledgeServiceImplTest {
 
     @BeforeEach
@@ -42,18 +48,21 @@ class KnowledgeServiceImplTest {
     }
 
     @Test
-    void uploadDocument_splits_and_adds_to_vectorstore() throws Exception {
+    void uploadDocument_splits_and_adds_file_level_metadata_to_vectorstore() throws Exception {
         VectorStore vectorStore = mock(VectorStore.class);
+        JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(), any())).thenReturn(List.of());
         TokenTextSplitter splitter = new TokenTextSplitter();
 
-        KnowledgeServiceImpl service = new KnowledgeServiceImpl(vectorStore, splitter);
+        KnowledgeServiceImpl service = new KnowledgeServiceImpl(vectorStore, splitter, jdbcTemplate);
 
-        String text = "这是一个测试文档，用于验证分块与入库调用。".repeat(50);
+        String text = "这是一份成都旅行知识，用于验证文件级 metadata 与分块入库。".repeat(50);
+        byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
         MockMultipartFile file = new MockMultipartFile(
                 "file",
-                "test.txt",
+                "chengdu.txt",
                 "text/plain",
-                text.getBytes(StandardCharsets.UTF_8)
+                bytes
         );
 
         var result = service.uploadDocument(file);
@@ -66,9 +75,25 @@ class KnowledgeServiceImplTest {
         assertNotNull(chunks);
         assertFalse(chunks.isEmpty());
         assertEquals(chunks.size(), result.chunkCount());
-        assertEquals("test.txt", result.fileName());
+        assertEquals("chengdu.txt", result.fileName());
+        assertNotNull(result.fileId());
+        assertEquals(sha256Hex(bytes), result.contentHash());
 
-        // 与 SecurityContext 中用户名一致，保证向量检索可按 user_id 隔离
+        Object fileId = chunks.get(0).getMetadata().get("file_id");
+        Object uploadedAt = chunks.get(0).getMetadata().get("uploaded_at");
+        Object contentHash = chunks.get(0).getMetadata().get("content_hash");
         assertEquals("demo", chunks.get(0).getMetadata().get("user_id"));
+        assertEquals("chengdu.txt", chunks.get(0).getMetadata().get("filename"));
+        assertEquals("chengdu.txt", chunks.get(0).getMetadata().get("source_name"));
+
+        for (Document chunk : chunks) {
+            assertEquals(fileId, chunk.getMetadata().get("file_id"));
+            assertEquals(uploadedAt, chunk.getMetadata().get("uploaded_at"));
+            assertEquals(contentHash, chunk.getMetadata().get("content_hash"));
+        }
+    }
+
+    private static String sha256Hex(byte[] bytes) throws Exception {
+        return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
     }
 }

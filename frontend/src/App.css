@@ -230,6 +230,59 @@ button:disabled {
   font-size: 0.9rem;
 }
 
+.knowledge-list {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 0.8rem;
+}
+
+.knowledge-item {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.75rem;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.knowledge-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.knowledge-head strong {
+  min-width: 0;
+  color: #1f2937;
+  word-break: break-word;
+}
+
+.knowledge-item dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem 0.75rem;
+  margin: 0;
+}
+
+.knowledge-item dl div {
+  min-width: 0;
+}
+
+.knowledge-item dt {
+  color: #667085;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.knowledge-item dd {
+  margin: 0.1rem 0 0;
+  color: #344054;
+  font-size: 0.86rem;
+  word-break: break-word;
+}
+
 .chat-panel {
   min-height: 560px;
 }
@@ -426,5 +479,9 @@ button:disabled {
 
   .message {
     max-width: 100%;
+  }
+
+  .knowledge-item dl {
+    grid-template-columns: 1fr;
   }
 }
