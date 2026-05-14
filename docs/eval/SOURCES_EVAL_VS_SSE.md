@@ -31,15 +31,15 @@
 
 ---
 
-## 3. 与 SSOT / 矩阵的表述
+## 3. 文档口径
 
-- `travel-ai-upgrade.md`：**`sources[]` 由系统构造**——评测路径已满足；SSE 为**等价信息的另一呈现**，不破坏「不把引用生成交给 LLM」的原则。  
-- `docs/IMPLEMENTATION_MATRIX.md`：评测行「`sources[]` 系统生成」与本文一致；若将来 SSE 也暴露结构化 `sources[]`（例如新增字段或事件），须同步 E7 与前端契约。
+- 当前评测路径的 `sources[]` 由系统从检索结果构造，SSE 为等价信息的另一种呈现形式，不把引用对象交给 LLM 生成。
+- 若将来 SSE 也暴露结构化 `sources[]`（例如新增字段或事件），需要同步评测响应、前端展示和本文对账口径。
 
 ---
 
 ## 4. 可选后续（未在本迭代实现）
 
 - 将 SSE 截断长度与评测 **统一为 300**（产品决策）。  
-- 在 SSE 增加 **`event: sources`**（JSON）与 eval **逐字段**对齐（工作量大，见 `UPGRADE_PLAN` P5-2 等演进项）。  
+- 在 SSE 增加 **`event: sources`**（JSON）与 eval **逐字段**对齐。
 - `snippet_hash`（SSOT 可选字段）：当前 **未**输出。

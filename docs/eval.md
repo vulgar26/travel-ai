@@ -6,18 +6,14 @@
 
 - **本页**：面向 **SSE 主产品** 的手工问题表。  
 - **评测批跑**：使用 **非流式** `POST /api/v1/eval/chat`；除业务头外还须 **`X-Eval-Gateway-Key`**（与 `APP_EVAL_GATEWAY_KEY` / `app.eval.gateway-key` 一致），以及 eval 侧契约要求的 **`X-Eval-Token`**、`X-Eval-Target-Id`、`X-Eval-Dataset-Id`、`X-Eval-Case-Id` 等（见 Vagent `eval-upgrade.md` E7）。  
-- **实现清单**：[`docs/IMPLEMENTATION_MATRIX.md`](IMPLEMENTATION_MATRIX.md)。
+- **实现入口**：`src/main/java/com/travel/ai/eval/EvalChatController.java`、`EvalChatService.java`、`EvalChatSafetyGate.java`、`EvalQuerySafetyPolicy.java`。
 - **共享事件语义（避免“主线 vs eval 两套口径”）**：主线 SSE 与 eval 都复用 `com.travel.ai.runtime.*` 中的共享模型：
   - **`StageEvent` / `StageName`**：固定线性阶段过程（`event: stage` / eval 的 `meta.stage_order`）
   - **`PolicyEvent`**：门控/工具治理/断点等策略轨迹（`event: policy` / eval 的 `meta.policy_events[]`）
   - **`PlanParseEvent`**：plan parse 元信息（`event: plan_parse` / eval 的 `meta.plan_parse_*`）
   - **`SseControlEvent`**：SSE 控制事件（`event: error` / `event: done`，用于客户端明确收尾与错误展示）。`event:error` 常见 `error_code`：`AGENT_CONFIG_ERROR`（`app.agent.max-steps` 过小）、`AGENT_PIPELINE_ERROR`（同步编排异常）、`AGENT_STREAM_ERROR`（流式链路异常）、`AGENT_TOTAL_TIMEOUT`（整轮墙钟超时）、`AGENT_LLM_STREAM_TIMEOUT` / `AGENT_LLM_STREAM_ERROR`（LLM 子流超时与其它异常，与整轮超时区分）；见 `TravelAgent` 常量。
-- **P0 数值门槛（eval 批跑）**：与手工表互补，见 [`eval/P0_THRESHOLD_RUNBOOK.md`](eval/P0_THRESHOLD_RUNBOOK.md)（`run.report` 聚合与 SSOT 比例核对）。
-- **`sources[]` vs SSE 引用块**：评测 JSON 与首包纯文本的**同源差异**见 [`eval/SOURCES_EVAL_VS_SSE.md`](SOURCES_EVAL_VS_SSE.md)。
-- **P1-0 harness 缺口与分步路线**：[`eval/P1_HARNESS_GAP.md`](P1_HARNESS_GAP.md)（`EvalChatMeta` 已具备字段 vs SSOT 仍缺项）。**`meta.config_snapshot_id`** 与 **`config_snapshot_hash`** 同源；可选 **`meta.config_snapshot`** 见 **`app.eval.config-snapshot-meta-enabled`**（`README`）。**`context_truncation_reasons`** 含 **`retrieval_candidates_capped`**、**`retrieval_query_line_truncated`**（非 `EVAL` 改写）等，见同文件 §2。  
-- **回放 / 断点**：[`eval/EVAL_REPLAY_CHECKPOINT.md`](eval/EVAL_REPLAY_CHECKPOINT.md)（Flyway V3；带 **`conversation_id`** 时 **写库 + 读库续跑**、**`EVAL_CHECKPOINT_*`**、证据快照复用；plan 不一致 **不写库**）。  
-- **可选：供应商 token 真值（`llm_mode=real`）**：何时开 **`app.eval.llm-real-enabled`**、**`eval_tags`** 抽样、`meta.provider_usage_*` 归因与合规，见 [`eval/LLM_REAL_USAGE_RUNBOOK.md`](eval/LLM_REAL_USAGE_RUNBOOK.md)。  
-- **CI 与远程全量 eval**：默认 GitHub Actions 跑 **`mvn test`**（含评测 MockMvc / 集成测）；与「对公网 target 跑整库」的分工见 [`eval/CI_AND_REMOTE_EVAL.md`](eval/CI_AND_REMOTE_EVAL.md)。
+- **`sources[]` vs SSE 引用块**：评测 JSON 与首包纯文本的**同源差异**见 [`eval/SOURCES_EVAL_VS_SSE.md`](eval/SOURCES_EVAL_VS_SSE.md)。
+- **CI 边界**：默认 GitHub Actions 跑 **`mvn test`**，覆盖评测 MockMvc / 集成测试；公网 target 的全量批跑不作为本仓默认 CI 步骤。
 
 填写说明：每次改 `TravelAgent` / 检索策略后，用同一套问题跑一遍，在「观察」列记 **命中条数 / 是否胡编 / 是否引用天气** 等。
 
@@ -59,7 +55,7 @@
   - **`TOOL_DISABLED_BY_CIRCUIT_BREAKER`**
   - **`RATE_LIMITED`**
 
-**导入 Vagent / eval 时的 `tags` 建议**：下表「建议标签」列可与数据集 `tags` 对齐，便于 `/report/buckets` 分桶（与 `docs/HARNESS_RULES.md` 的 `attack/*` 等一致）。
+**导入 eval 数据集时的 `tags` 建议**：下表「建议标签」列可与数据集 `tags` 对齐，便于按 `attack/*`、`rag/empty`、`rag/low_conf` 等类别分桶。
 
 ### S0 — `EvalChatSafetyGate`（检索 / Plan 之前）
 

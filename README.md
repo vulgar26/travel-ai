@@ -7,7 +7,7 @@ Travel AI Planner 是一个面向出行规划场景的 RAG + SSE 后端项目。
 ## 核心链路
 
 ```text
-PLAN -> RETRIEVE -> TOOL -> GUARD -> WRITE
+PLAN → RETRIEVE → TOOL → GUARD → WRITE
 ```
 
 - `PLAN`：生成或兜底解析结构化计划，约束后续阶段顺序。
@@ -23,6 +23,13 @@ PLAN -> RETRIEVE -> TOOL -> GUARD -> WRITE
 - `src/main/java/com/travel/ai/config/PgVectorStore.java`
 - `src/main/java/com/travel/ai/eval/EvalChatController.java`
 - `src/main/java/com/travel/ai/security/SecurityConfig.java`
+
+## 技术栈
+
+- 后端：Java 21、Spring Boot 3、Spring Security、Spring AI Alibaba、Spring JDBC、Flyway、Actuator
+- 数据：PostgreSQL + pgvector、Redis
+- 前端：Vite、React 18、Fetch API、手写 text/event-stream 解析
+- 测试与部署：JUnit 5、Spring Boot Test、Testcontainers、Docker Compose、GitHub Actions
 
 ## 已实现功能
 
@@ -81,64 +88,6 @@ npm run dev
 前端默认地址为 `http://localhost:5173`，Vite 将 `/api` 代理到 `http://127.0.0.1:8081`。
 
 更完整的 Windows / Docker Desktop / IDEA 启动说明见 [docs/LOCAL_DEV.md](docs/LOCAL_DEV.md)。
-
-## 环境变量
-
-| 变量 | 是否必需 | 示例 / 默认值 | 说明 |
-| --- | --- | --- | --- |
-| `SPRING_DATASOURCE_URL` | 本地 IDEA 必需 | `jdbc:postgresql://localhost:5433/ragent` | 后端直连宿主机 Postgres 时使用 |
-| `SPRING_DATASOURCE_USERNAME` | 本地 IDEA 必需 | `postgres` | 数据库用户名 |
-| `SPRING_DATASOURCE_PASSWORD` | 本地 IDEA 必需 | `postgres` | 数据库密码，本地演示值 |
-| `SPRING_DATA_REDIS_HOST` | 本地 IDEA 必需 | `localhost` | Redis 主机 |
-| `SPRING_DATA_REDIS_PORT` | 本地 IDEA 必需 | `16379` | Redis 宿主机端口 |
-| `POSTGRES_PASSWORD` | Compose 必需 | `postgres` | Compose 中 Postgres 密码 |
-| `APP_JWT_SECRET` | 必需 | 64 位以上随机字符串 | JWT HS256 密钥，生产环境必须替换 |
-| `SPRING_AI_DASHSCOPE_API_KEY` | 真实 LLM 必需 | `<your-key>` | DashScope / Spring AI Alibaba API Key |
-| `APP_EVAL_GATEWAY_KEY` | 使用 eval 接口时必需 | `<your-eval-key>` | `/api/v1/eval/**` 网关密钥 |
-| `WEATHER_API_KEY` | 可选 | 空 | 天气工具真实 API Key；为空时走降级或本地演示逻辑 |
-
-不要提交 `.env`。仓库只保留 [.env.example](.env.example) 作为模板。
-
-## 核心接口
-
-业务接口默认需要 `Authorization: Bearer <token>`。未登录返回 `401`，无权访问会话返回 `403`，限流返回 `429`。
-
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| `POST` | `/auth/login` | 登录并返回 JWT |
-| `POST` | `/travel/conversations` | 创建并登记 `conversationId` |
-| `POST` | `/knowledge/upload` | 上传 `.txt` 知识文件 |
-| `GET` | `/travel/knowledge` | 获取当前用户知识文件列表 |
-| `DELETE` | `/travel/knowledge/{fileId}` | 删除当前用户知识文件的向量 chunks |
-| `POST` | `/travel/chat/{conversationId}` | SSE 流式聊天，推荐 POST JSON `{"query":"..."}` |
-| `GET` | `/travel/profile` | 获取当前用户画像 |
-| `POST` | `/travel/profile/extract-suggestion` | 从会话中抽取画像建议 |
-| `GET` | `/travel/profile/pending-extraction?conversationId=...` | 获取待确认画像 |
-| `POST` | `/travel/profile/confirm-extraction` | 确认并写入画像 |
-| `DELETE` | `/travel/profile/pending-extraction?conversationId=...` | 忽略待确认画像 |
-| `DELETE` | `/travel/profile` | 重置画像，可选清理聊天记忆 |
-| `POST` | `/travel/feedback` | 提交用户反馈 |
-| `GET` | `/travel/feedback?limit=20&offset=0` | 获取当前用户反馈列表 |
-| `POST` | `/api/v1/eval/chat` | 非流式评测接口，需要 `X-Eval-Gateway-Key` |
-| `GET` | `/actuator/health` | 健康检查 |
-
-## 技术栈
-
-- 后端：Java 21、Spring Boot 3、Spring Security、Spring AI Alibaba、Spring JDBC、Flyway、Actuator
-- 数据：PostgreSQL + pgvector、Redis
-- 前端：Vite、React 18、Fetch API、手写 text/event-stream 解析
-- 测试与部署：JUnit 5、Spring Boot Test、Testcontainers、Docker Compose、GitHub Actions
-
-## 文档入口
-
-| 文档 | 内容 |
-| --- | --- |
-| [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md) | 项目总览、当前能力、已知不足和路线 |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 请求链路、Agent 主线、SSE、Compose |
-| [docs/LOCAL_DEV.md](docs/LOCAL_DEV.md) | Windows + Docker Desktop + IDEA 本地启动和排错 |
-| [docs/FRONTEND_DEMO.md](docs/FRONTEND_DEMO.md) | 前端页面结构、接口清单和手动验收 |
-| [docs/IMPLEMENTATION_MATRIX.md](docs/IMPLEMENTATION_MATRIX.md) | 实现与计划对照 |
-| [docs/eval.md](docs/eval.md) | 评测接口与回归样例 |
 
 ## 已知限制
 

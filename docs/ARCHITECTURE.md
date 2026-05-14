@@ -1,6 +1,6 @@
 # ARCHITECTURE — 最简链路说明（与代码同步）
 
-本项目的核心是 **固定线性编排下的可解释 RAG + SSE**：在 `TravelAgent` 内按阶段推进（见 §1.1），并补齐鉴权、会话隔离、限流、超时、Actuator、SSE 心跳。**与 Vagent `travel-ai-upgrade.md` 的逐项对照**见 [`docs/IMPLEMENTATION_MATRIX.md`](IMPLEMENTATION_MATRIX.md)。
+本项目的核心是 **固定线性编排下的可解释 RAG + SSE**：在 `TravelAgent` 内按阶段推进（见 §1.1），并补齐鉴权、会话隔离、限流、超时、Actuator、SSE 心跳。本文以当前源码和 `application.yml` 为准，历史计划与阶段记录已归档到 `docs/archive/`。
 
 ## 1. 请求链路（文本流程图）
 
@@ -93,7 +93,7 @@
 - 配置了 `livenessstate` / `readinessstate` 用于 `health` 语义判断，并开启了 `management.endpoint.health.probes.enabled`；因此子路径 `/actuator/health/liveness` 与 `/actuator/health/readiness` 返回 `200`（匿名可访问）。
 - `SecurityConfig` 对 `/actuator/health/**` 与 `/actuator/info` 使用 `permitAll()`，负载均衡与 Docker/K8s 健康检查无需携带 Token。
 
-更细的 Actuator 概念说明见：`docs/ACTUATOR_HEALTH_BASICS.md`。
+更细的 Actuator 概念说明见：`ACTUATOR_HEALTH_BASICS.md`。
 
 ### 5.6 SSE 工程化（心跳与断线）
 

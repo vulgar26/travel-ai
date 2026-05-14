@@ -144,7 +144,7 @@
 - base vs cand compare（regressions 列表）
 - tags buckets（至少 `attack/*`、`rag/empty`、`rag/low_conf`）
 
-参见：`docs/HARNESS_RULES.md`
+历史 harness 规则已归档到 `docs/archive/`；当前工具治理以本文和源码测试为准。
 
 ---
 
