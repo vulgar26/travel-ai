@@ -1,7 +1,11 @@
+### Build outputs ###
 target/
 !.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
+build/
+dist/
+out/
 
 ### IntelliJ IDEA ###
 .idea/modules.xml
@@ -27,7 +31,6 @@ target/
 /dist/
 /nbdist/
 /.nb-gradle/
-build/
 !**/src/main/**/build/
 !**/src/test/**/build/
 
@@ -40,15 +43,29 @@ build/
 # local secrets / overrides
 src/main/resources/application-local.yml
 .env
+.env.*
+!.env.example
 *.local.yml
+*.local.properties
+local/
+tmp/
+temp/
+/test.txt
+/img.png
 
 # Node / Vite（Week 4 最小前端）
 frontend/node_modules/
 frontend/dist/
 
-# JVM crash dumps（本机内存不足等）
+# logs / runtime artifacts
+*.log
+logs/
+
+# JVM crash dumps / replay logs
 hs_err_pid*.log
 replay_pid*.log
 
 # eval run artifacts (local)
 eval_run_*.json
+*_results.json
+docs/eval_exports/
