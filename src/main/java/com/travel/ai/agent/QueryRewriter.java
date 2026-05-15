@@ -31,18 +31,18 @@ public class QueryRewriter {
 
     private static final String REWRITE_PROMPT = """
             你是一个搜索query优化专家。
-            用户输入一个旅游相关的问题，你需要将其改写为3个不同角度的检索query。
+            用户输入一个金融研究、公司分析、财报/研报问答、新闻事件或市场数据相关的问题，你需要将其改写为3个不同角度的检索query。
             要求：
             1. 每个query简洁精准，适合向量检索
-            2. 三个query角度不同，覆盖更广
+            2. 三个query角度不同，覆盖事实资料、风险因素、时间/主体等维度
             3. 只输出3个query，每行一个，不要编号，不要其他内容
             
             示例：
-            用户问题：成都好玩的地方
+            用户问题：分析苹果公司最近一季财报的收入增长和风险
             输出：
-            成都著名景点推荐
-            成都热门旅游胜地
-            成都必去打卡景点
+            苹果公司 最近一季 财报 收入增长
+            Apple earnings revenue growth risk factors
+            苹果公司 管理层展望 毛利率 风险
             """;
 
     public QueryRewriter(ChatClient.Builder builder) {

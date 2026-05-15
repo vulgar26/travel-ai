@@ -31,14 +31,13 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 
-import com.travel.ai.llm.LlmUsage;
-import com.travel.ai.llm.SpringAiUsageExtractor;
 import com.travel.ai.runtime.StageEvent;
 import com.travel.ai.runtime.StageName;
 import com.travel.ai.runtime.PolicyEvent;
 import com.travel.ai.runtime.PlanParseEvent;
 import com.travel.ai.runtime.PolicyStageAnchor;
 import com.travel.ai.runtime.SseControlEvent;
+import com.travel.ai.tools.GovernedAgentTool;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -47,7 +46,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -57,7 +55,7 @@ import static com.travel.ai.tools.ToolExecutor.execute;
 import static com.travel.ai.tools.ToolObservability.log;
 
 /**
- * 出行对话编排：主线采用<strong>固定线性阶段</strong>（P0-1 编排骨架），逻辑顺序为
+ * 金融分析 Agent 编排：主线采用<strong>固定线性阶段</strong>（P0-1 编排骨架），逻辑顺序为
  * {@code PLAN → RETRIEVE → TOOL → GUARD → WRITE}，由 {@link TravelAgent#runLinearStages(MainAgentTurnContext)}
  * 串行推进；禁止用「阶段名 → 处理器」的 Map 或动态跳转驱动执行（避免退化成 DAG/状态机）。
  * <p>
@@ -70,7 +68,7 @@ import static com.travel.ai.tools.ToolObservability.log;
  * 显式去重，避免依赖 {@link Document#equals} 实现细节（UPGRADE P2-2）。
  */
 @Component
-public class TravelAgent {
+public class TravelAgent implements FinancialAnalystAgent {
 
     private static final Logger log = LoggerFactory.getLogger(TravelAgent.class);
 
@@ -98,6 +96,7 @@ public class TravelAgent {
     private final VectorStore vectorStore;
     private final QueryRewriter queryRewriter;
     private final WeatherTool weatherTool;
+    private final MarketDataTool marketDataTool;
     private final com.travel.ai.tools.ToolCircuitBreaker toolCircuitBreaker;
     private final com.travel.ai.tools.ToolRateLimiter toolRateLimiter;
     private final MainLinePlanProposer mainLinePlanProposer;
@@ -113,6 +112,12 @@ public class TravelAgent {
     @Value("${app.tools.weather.summary-max-chars:400}")
     private int weatherSummaryMaxChars;
 
+    @Value("${app.tools.market.enabled:true}")
+    private boolean marketDataToolEnabled;
+
+    @Value("${app.tools.market.summary-max-chars:600}")
+    private int marketDataSummaryMaxChars;
+
     /** 长连接空闲时定期发送 SSE 注释行（comment），避免网关/代理因无数据而断开 */
     @Value("${app.sse.heartbeat-seconds:15}")
     private int sseHeartbeatSeconds;
@@ -125,13 +130,14 @@ public class TravelAgent {
     private String emptyHitsBehavior;
 
     private static final String SYSTEM_PROMPT = """
-            你是一个专业的出行规划助手。
-            当用户提供出发地、目的地、时间、预算等信息时，你需要：
-            1. 分析用户的出行需求
-            2. 提供多种出行方案（飞机、高铁、自驾等）
-            3. 对每种方案给出大致费用、时长、优缺点
-            4. 根据用户预算和偏好推荐最适合的方案
-            请用清晰的结构化格式回答，方便用户阅读。
+            你是 Financial AI Analyst / Research Agent，面向金融知识学习、新闻分析、财报/研报问答、市场数据解读和风险提示。
+            回答必须遵守：
+            1. 优先基于检索到的资料、工具观察和用户提供的信息作答；证据不足时先澄清，不要编造。
+            2. 明确引用来源或引用片段，区分事实、推断与不确定性。
+            3. 涉及市场、公司、财务、宏观或新闻分析时，说明数据时点、关键假设和主要风险。
+            4. 不提供个性化投资建议，不承诺收益，不给出自动交易或下单指令。
+            5. 默认附上简短风险提示：内容仅供研究和教育参考，不构成投资建议。
+            请用清晰的结构化格式回答，方便用户复核证据。
             """;
 
     public TravelAgent(ChatClient.Builder builder,
@@ -139,6 +145,7 @@ public class TravelAgent {
                        VectorStore vectorStore,
                        QueryRewriter queryRewriter,
                        WeatherTool weatherTool,
+                       MarketDataTool marketDataTool,
                        com.travel.ai.tools.ToolCircuitBreaker toolCircuitBreaker,
                        com.travel.ai.tools.ToolRateLimiter toolRateLimiter,
                        MainLinePlanProposer mainLinePlanProposer,
@@ -151,6 +158,7 @@ public class TravelAgent {
         this.vectorStore = vectorStore;
         this.queryRewriter = queryRewriter;
         this.weatherTool = weatherTool;
+        this.marketDataTool = marketDataTool;
         this.toolCircuitBreaker = toolCircuitBreaker;
         this.toolRateLimiter = toolRateLimiter;
         this.mainLinePlanProposer = mainLinePlanProposer;
@@ -177,6 +185,7 @@ public class TravelAgent {
     /**
      * 单轮 SSE 对话入口：只做 MDC、构造 {@link MainAgentTurnContext}，再按固定顺序跑阶段，最后组装 SSE。
      */
+    @Override
     public Flux<ServerSentEvent<String>> chat(String conversationId, String userMessage) {
         String requestId = UUID.randomUUID().toString();
         MDC.put("requestId", requestId);
@@ -638,7 +647,7 @@ public class TravelAgent {
 
         ctx.promptBase = context.isEmpty()
                 ? ctx.userMessage
-                : "【景点参考信息】\n" + context + "\n\n【用户问题】\n" + ctx.userMessage;
+                : "【研究参考资料】\n" + context + "\n\n【用户问题】\n" + ctx.userMessage;
 
         ctx.citationBlock = buildCitationBlock(ctx.docs);
 
@@ -646,45 +655,16 @@ public class TravelAgent {
     }
 
     /**
-     * TOOL：系统受控工具（当前仅天气白名单）；产出 {@code toolPreface}，与 PLAN 的 {@code planJson} 及 {@code promptBase} 合并为 {@code finalPromptForLlm}。
+     * TOOL：系统受控工具；产出 {@code toolPreface}，与 PLAN 的 {@code planJson} 及 {@code promptBase} 合并为 {@code finalPromptForLlm}。
      */
     private void stageTool(MainAgentTurnContext ctx) {
         long t0 = System.nanoTime();
         log.info("[stage] TOOL start requestId={}", ctx.requestId);
 
         ctx.toolPreface = "";
-        if (ctx.userMessage != null && ctx.userMessage.contains("天气")) {
-            String city = guessCityForWeather(ctx.userMessage);
-            var toolName = "weather";
-            boolean required = true;
-
-            com.travel.ai.tools.ToolResult r;
-            if (!weatherToolEnabled) {
-                r = com.travel.ai.tools.ToolResult.disabledByPolicy(toolName, required, com.travel.ai.tools.ToolExecutor.ERROR_CODE_POLICY_DISABLED);
-            } else if (!toolCircuitBreaker.allow(toolName)) {
-                r = com.travel.ai.tools.ToolResult.disabledByCircuitBreaker(toolName, required, "TOOL_DISABLED_BY_CIRCUIT_BREAKER");
-            } else if (!toolRateLimiter.tryAcquire(toolName)) {
-                r = com.travel.ai.tools.ToolResult.rateLimited(toolName, required, "RATE_LIMITED");
-            } else {
-                r = execute(
-                        toolName,
-                        required,
-                        true,
-                        weatherSummaryMaxChars,
-                        () -> {
-                            try {
-                                return weatherTool.getWeatherStrict(city);
-                            } catch (Exception e) {
-                                throw new RuntimeException(e);
-                            }
-                        }
-                );
-                if (r.outcome() == com.travel.ai.tools.ToolOutcome.OK) {
-                    toolCircuitBreaker.recordSuccess(toolName);
-                } else if (r.outcome() == com.travel.ai.tools.ToolOutcome.TIMEOUT || r.outcome() == com.travel.ai.tools.ToolOutcome.ERROR) {
-                    toolCircuitBreaker.recordFailure(toolName);
-                }
-            }
+        GovernedAgentTool selected = selectTool(ctx.userMessage);
+        if (selected != null) {
+            com.travel.ai.tools.ToolResult r = executeGovernedTool(selected, ctx.userMessage);
             log(log, r, ctx.requestId);
             ctx.policyEvents.add(PolicyEvent.of(
                     "tool_stage",
@@ -717,9 +697,70 @@ public class TravelAgent {
         logStageBoundary(StageName.TOOL, t0, ctx);
     }
 
+    private GovernedAgentTool selectTool(String userMessage) {
+        if (marketDataTool.shouldHandle(userMessage)) {
+            return marketDataTool;
+        }
+        if (weatherTool.shouldHandle(userMessage)) {
+            return weatherTool;
+        }
+        return null;
+    }
+
+    private com.travel.ai.tools.ToolResult executeGovernedTool(GovernedAgentTool tool, String userMessage) {
+        String toolName = tool.name();
+        boolean required = true;
+        boolean enabled = switch (toolName) {
+            case "weather" -> weatherToolEnabled;
+            case "market_data" -> marketDataToolEnabled;
+            default -> true;
+        };
+        int summaryMaxChars = switch (toolName) {
+            case "market_data" -> marketDataSummaryMaxChars;
+            default -> weatherSummaryMaxChars;
+        };
+
+        if (!enabled) {
+            return com.travel.ai.tools.ToolResult.disabledByPolicy(
+                    toolName,
+                    required,
+                    com.travel.ai.tools.ToolExecutor.ERROR_CODE_POLICY_DISABLED);
+        }
+        if (!toolCircuitBreaker.allow(toolName)) {
+            return com.travel.ai.tools.ToolResult.disabledByCircuitBreaker(
+                    toolName,
+                    required,
+                    "TOOL_DISABLED_BY_CIRCUIT_BREAKER");
+        }
+        if (!toolRateLimiter.tryAcquire(toolName)) {
+            return com.travel.ai.tools.ToolResult.rateLimited(toolName, required, "RATE_LIMITED");
+        }
+
+        com.travel.ai.tools.ToolResult r = execute(
+                toolName,
+                required,
+                true,
+                summaryMaxChars,
+                () -> {
+                    try {
+                        return tool.observe(tool.resolveInput(userMessage));
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                }
+        );
+        if (r.outcome() == com.travel.ai.tools.ToolOutcome.OK) {
+            toolCircuitBreaker.recordSuccess(toolName);
+        } else if (r.outcome() == com.travel.ai.tools.ToolOutcome.TIMEOUT
+                || r.outcome() == com.travel.ai.tools.ToolOutcome.ERROR) {
+            toolCircuitBreaker.recordFailure(toolName);
+        }
+        return r;
+    }
+
     /**
      * GUARD：检索零命中门控（P0 默认 clarify）；仅当 TOOL 的 {@code BEGIN_TOOL_DATA} 与 {@code END_TOOL_DATA} 之间有<strong>非空</strong>正文时放行 LLM，
-     * 避免「工具 outcome=ERROR 且 payload 空」仍走大模型编造实时天气。
+     * 避免「工具 outcome=ERROR 且 payload 空」仍走大模型编造实时数据。
      */
     private void stageGuard(MainAgentTurnContext ctx) {
         long t0 = System.nanoTime();
@@ -797,11 +838,11 @@ public class TravelAgent {
                 .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, ctx.conversationId))
                 .stream();
 
-        // B（真 token）：优先尝试从 Spring AI streaming 的响应元数据提取 provider usage。
-        // 若 provider usage 不可得，则输出字符级估算（不代表计费 token）。
+        // Usage logging is post-processing only. Do not subscribe to chatResponse() here, because
+        // that can re-enter an incomplete stream advisor chain after the SSE content stream ended.
+        // Keep the existing character estimate when provider usage is not already available.
         AtomicLong streamedChars = new AtomicLong(0L);
         long promptChars = ctx.finalPromptForLlm != null ? ctx.finalPromptForLlm.length() : 0L;
-        var providerUsage = new java.util.concurrent.atomic.AtomicReference<LlmUsage>();
 
         Flux<String> flux = streamSpec
                 .content()
@@ -833,19 +874,10 @@ public class TravelAgent {
                         long wallMs = (System.nanoTime() - llmStartNs.get()) / 1_000_000L;
                         log.info("[perf] llm_stream_wall_ms={} signal={} requestId={}", wallMs, signal, ctx.requestId);
                     }
-                    if (providerUsage.get() == null) {
-                        tryAttachProviderUsageFromStream(streamSpec).ifPresent(providerUsage::set);
-                    }
-                    LlmUsage u = providerUsage.get();
-                    if (u != null) {
-                        log.info("[usage] prompt_tokens={} completion_tokens={} total_tokens={} source={} requestId={}",
-                                u.promptTokens(), u.completionTokens(), u.totalTokens(), u.source(), ctx.requestId);
-                    } else {
-                        long totalChars = promptChars + streamedChars.get();
-                        long tokenEst = (long) Math.ceil(totalChars / 4.0);
-                        log.info("[usage] token_estimate={} prompt_chars={} streamed_chars={} requestId={}",
-                                tokenEst, promptChars, streamedChars.get(), ctx.requestId);
-                    }
+                    long totalChars = promptChars + streamedChars.get();
+                    long tokenEst = (long) Math.ceil(totalChars / 4.0);
+                    log.info("[usage] token_estimate={} prompt_chars={} streamed_chars={} requestId={}",
+                            tokenEst, promptChars, streamedChars.get(), ctx.requestId);
                     logStageBoundary(StageName.WRITE, t0, ctx);
                     Long ms = ctx.stageElapsedMs.get(StageName.WRITE);
                     if (ms != null) {
@@ -854,25 +886,6 @@ public class TravelAgent {
                 })
                 .share();
         return flux;
-    }
-
-    private Optional<LlmUsage> tryAttachProviderUsageFromStream(Object streamSpec) {
-        if (streamSpec == null) {
-            return Optional.empty();
-        }
-        try {
-            // 反射调用 chatResponse(): Publisher<?>
-            var m = streamSpec.getClass().getMethod("chatResponse");
-            Object pub = m.invoke(streamSpec);
-            if (!(pub instanceof org.reactivestreams.Publisher<?> publisher)) {
-                return Optional.empty();
-            }
-            // 通常 usage 在末包填充：取最后一个元素 best-effort
-            Object last = Flux.from(publisher).blockLast();
-            return SpringAiUsageExtractor.tryExtract(last);
-        } catch (Exception ignored) {
-            return Optional.empty();
-        }
     }
 
     /**
@@ -910,7 +923,7 @@ public class TravelAgent {
         final List<PolicyEvent> policyEvents = new ArrayList<>();
         /**
          * WRITE 子流：LLM {@code .timeout(llm_stream)} 或其它异常经 onErrorResume 降级为占位文本时，
-         * 在 {@link #doOnError} 写入对应 {@code error_code}，供 {@link TravelAgent#chat} 注入 {@code event:error}。
+         * 在 {@link # doOnError} 写入对应 {@code error_code}，供 {@link TravelAgent#chat} 注入 {@code event:error}。
          */
         final AtomicReference<String> llmStreamErrorCode = new AtomicReference<>();
 
@@ -961,7 +974,7 @@ public class TravelAgent {
         }
     }
 
-    private static String guessCityForWeather(String userMessage) {
+    static String guessCityForWeather(String userMessage) {
         if (userMessage == null || userMessage.isBlank()) {
             return "北京";
         }

@@ -13,6 +13,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.lang.NonNull;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -30,7 +31,7 @@ import java.util.concurrent.TimeUnit;
  * <p>
  * <b>两类互不影响的配额</b>（与 {@code docs/UPGRADE_PLAN.md} 中 P0-1 / P1-1 对齐）：
  * <ul>
- *   <li><b>聊天 SSE</b>：路径前缀 {@code /travel/chat}，按「已登录用户名」或「匿名 IP」限流，
+ *   <li><b>聊天 SSE</b>：路径前缀 {@code /travel/chat}、{@code /analysis/chat} 或 {@code /finance/chat}，按「已登录用户名」或「匿名 IP」限流，
  *       防止对话接口刷爆 LLM/向量库。</li>
  *   <li><b>登录</b>：{@code POST /auth/login}，<b>仅按 IP</b> 限流（登录前尚无可靠用户身份），
  *       缓解对演示账号或未来用户表的暴力尝试。</li>
@@ -96,8 +97,8 @@ public class RateLimitingFilter extends OncePerRequestFilter {
             return;
         }
 
-        // 2) 聊天 SSE：路径以 /travel/chat 开头（含 /travel/chat/{id}）
-        if (path.startsWith("/travel/chat")) {
+        // 2) 聊天 SSE：兼容 legacy /travel/chat 与金融分析 alias。
+        if (isChatPath(path)) {
             if (!tryConsumeChat(request)) {
                 write429(response);
                 return;
@@ -123,6 +124,12 @@ public class RateLimitingFilter extends OncePerRequestFilter {
         return ok;
     }
 
+    private static boolean isChatPath(String path) {
+        return path.startsWith("/travel/chat")
+                || path.startsWith("/analysis/chat")
+                || path.startsWith("/finance/chat");
+    }
+
     /**
      * 消费「登录」额度：统一按客户端 IP，不把用户名放进 key（防止日志侧泄露尝试账号）。
      */
@@ -141,7 +148,7 @@ public class RateLimitingFilter extends OncePerRequestFilter {
         // 与 Security 401/403、RestApiExceptionHandler 4xx 同形：{"error","message"}（工程债收口）
         JsonApiErrorSupport.write(
                 response,
-                HttpServletResponse.SC_TOO_MANY_REQUESTS,
+                HttpStatus.TOO_MANY_REQUESTS.value(),
                 "RATE_LIMITED",
                 "请求过于频繁，请稍后再试");
     }

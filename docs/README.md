@@ -14,6 +14,8 @@
 | [eval/SOURCES_EVAL_VS_SSE.md](eval/SOURCES_EVAL_VS_SSE.md) | eval `sources[]` 与 SSE 引用片段的证据口径说明 |
 | [TOOL_GOVERNANCE_SPEC.md](TOOL_GOVERNANCE_SPEC.md) | 工具调用归因、超时、限流、熔断和观测字段约定 |
 | [ACTUATOR_HEALTH_BASICS.md](ACTUATOR_HEALTH_BASICS.md) | Actuator 健康检查和探活基础说明 |
+| [FINANCE_AI_ANALYST.md](FINANCE_AI_ANALYST.md) | 金融分析平台方向、合规边界和非投资建议声明 |
+| [roadmap/](roadmap/) | Finance Agent、异步 Agent Runtime、Eval Harness 的长期演进方案 |
 
 ## 归档内容
 

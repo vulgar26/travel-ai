@@ -5,6 +5,7 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
 import com.travel.ai.config.AppAgentProperties;
+import com.travel.ai.tools.GovernedAgentTool;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -14,7 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 @Component
-public class WeatherTool {
+public class WeatherTool implements GovernedAgentTool {
 
     private static final Logger log = LoggerFactory.getLogger(WeatherTool.class);
     private final AppAgentProperties appAgentProperties;
@@ -71,7 +72,7 @@ public class WeatherTool {
         return Math.max(1L, weatherTimeoutMs);
     }
 
-    @Tool(description = "获取指定城市的实时天气信息，包括温度、天气状况、湿度、风速等，用于出行规划参考")
+    @Tool(description = "获取指定城市的实时天气信息，包括温度、天气状况、湿度、风速等。保留为 legacy 示例工具。")
     public String getWeather(String cityName) {
         log.info("=== 天气工具被调用了！城市：{} ===", cityName);
 
@@ -123,5 +124,25 @@ public class WeatherTool {
                     cityName,
                     body.length() > 100 ? body.substring(0, 100) + "..." : body);
         }
+    }
+
+    @Override
+    public String name() {
+        return "weather";
+    }
+
+    @Override
+    public boolean shouldHandle(String userMessage) {
+        return userMessage != null && userMessage.contains("天气");
+    }
+
+    @Override
+    public String resolveInput(String userMessage) {
+        return TravelAgent.guessCityForWeather(userMessage);
+    }
+
+    @Override
+    public String observe(String input) throws Exception {
+        return getWeatherStrict(input);
     }
 }
